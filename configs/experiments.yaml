@@ -1,0 +1,28 @@
+# Variants. Every run shares DEFAULTS in src/lulc/train.py unless overridden here.
+# V5-V8 are the improvement experiments (yearly statistics, loss, speckle augmentation). Decide on validation only.
+# V2-V4 take their encoder weights from whichever of V0/V1 has the higher mean validation mIoU.
+common:
+  epochs: 12
+  epoch_samples: 3000
+  batch: 16
+  patch: 256
+seeds: [0, 1, 2]
+variants:
+  V0_scratch_1m:   {weights: null,       window: 1}
+  V1_imagenet_1m:  {weights: imagenet,   window: 1}
+  V2_window3:      {weights: auto,       window: 3}
+  V3_window3_conf50: {weights: auto,      window: 3, conf_cutoff: 50}
+  V4_window3_coh50: {weights: auto,       window: 3, conf_cutoff: 50, coherence: true}
+  V5_window3_stats:   {weights: auto, window: 3, yearly_stats: true}
+  V6_window3_loss:    {weights: auto, window: 3, class_weight_power: 0.75, lovasz_weight: 0.5}
+  V7_window3_speckle: {weights: auto, window: 3, speckle_p: 0.5, speckle_looks: 10}
+  V8_window3_all:     {weights: auto, window: 3, yearly_stats: true, class_weight_power: 0.75, lovasz_weight: 0.5, speckle_p: 0.5, speckle_looks: 10}
+  # From reference implementations (B: augmentation and regularisation, repos A/B: label agreement filter). Validation decides.
+  V9_window3_regularised: {weights: auto, window: 3, db_shift: 1.5, month_dropout: 0.15, jitter: 64, label_smoothing: 0.1, weight_decay: 0.05}
+  V10_window3_agree:      {weights: auto, window: 3, agree_filter: true}      # needs reference.npz for the TRAIN regions
+  # Rural focus (professor tests on rural areas; the training set is mostly big cities by area, so cities dominate the samples).
+  V11_window3_balanced:   {weights: auto, window: 3, region_balance: equal}
+  V12_window3_balanced_stats: {weights: auto, window: 3, region_balance: equal, yearly_stats: true}
+  # Coherence from ASF HyP3 (matching year, 4 seasonal bands, 20 m). Research variant on the rural tiles only (see docs/COHERENCE.md):
+  # compare with V2 trained on the SAME tiles (--only). Never used by the prototype.
+  V13_window3_coh_hyp3:   {weights: auto, window: 3, coherence: hyp3}
