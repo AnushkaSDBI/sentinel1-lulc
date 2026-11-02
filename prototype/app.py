@@ -19,6 +19,7 @@ import streamlit as st
 import torch
 try:                                   # basemap and charts; the app still runs without them (plain maps)
     import folium
+    import plotly.express as px
     import plotly.graph_objects as go
     from streamlit_folium import st_folium
     HAVE_MAP = True
@@ -52,10 +53,50 @@ def get_models(path: str, device: str):
     return proto.load_ensemble(path, torch.device(device))
 
 
+LEGEND_HINT = {"Tree cover": "forest, plantation", "Grass/shrub": "grass, scrub, pasture", "Cropland": "fields, farmland",
+               "Built-up": "towns, roads, buildings", "Bare": "sand, rock, soil", "Water": "rivers, lakes, sea"}
+
+
 def legend_html():
-    chips = "".join(f'<span style="display:inline-block;margin-right:14px"><span style="display:inline-block;width:12px;height:12px;'
-                    f'background:{c};border:1px solid #666;margin-right:4px"></span>{n}</span>' for c, n in zip(CLASS_COLORS, CLASS_NAMES))
-    return f'<div style="font-size:0.85rem">{chips}</div>'
+    chips = "".join(
+        f'<span style="display:inline-flex;align-items:center;margin:2px 14px 2px 0;font-size:0.9rem">'
+        f'<span style="width:16px;height:16px;border-radius:3px;background:{c};border:1px solid #888;margin-right:6px"></span>'
+        f'<b>{n}</b>&nbsp;<span style="color:#999;font-size:0.8rem">{LEGEND_HINT.get(n, "")}</span></span>'
+        for c, n in zip(CLASS_COLORS, CLASS_NAMES))
+    return f'<div style="display:flex;flex-wrap:wrap;line-height:1.6">{chips}</div>'
+
+
+def metric_card(label, value):
+    return (f'<div style="padding:4px 0"><div style="font-size:0.78rem;color:#8a929c;text-transform:uppercase;letter-spacing:0.03em">{label}</div>'
+            f'<div style="font-size:1.05rem;font-weight:600;word-break:break-word;line-height:1.3">{value}</div></div>')
+
+
+def fmt_period(labels):
+    a, b = labels[0], labels[-1]
+    (ma, ya), (mb, yb) = a.split(), b.split()
+    return f"{ma}–{mb} {ya}" if ya == yb else f"{a} – {b}"
+
+
+def class_rgb(pred, ignore: int = 255):
+    pal = np.array([[int(c[i:i + 2], 16) for i in (1, 3, 5)] for c in CLASS_COLORS] + [[18, 20, 24]], np.uint8)
+    return pal[np.where(pred == ignore, len(CLASS_COLORS), pred)]
+
+
+@st.cache_data(show_spinner=False)
+def place_name(lat: float, lon: float):
+    """Reverse-geocode a point to a readable name. Returns None if the network is blocked (common on a compute server)."""
+    try:
+        import requests
+        r = requests.get("https://nominatim.openstreetmap.org/reverse",
+                         params={"lat": lat, "lon": lon, "format": "json", "zoom": 8},
+                         headers={"User-Agent": "sar-lulc-prototype"}, timeout=4)
+        a = r.json().get("address", {})
+        for k in ("city", "town", "village", "county", "state", "region"):
+            if a.get(k):
+                return a[k] + (f", {a['country']}" if a.get("country") else "")
+        return a.get("country")
+    except Exception:
+        return None
 
 
 def base_map(bounds, satellite: bool):
@@ -74,7 +115,14 @@ def false_colour(store, i):
     rgb = np.stack([vv, vh, vv - vh], -1)
     for b, (lo, hi) in enumerate([(-20, 0), (-27, -7), (2, 15)]):
         rgb[..., b] = np.clip((rgb[..., b] - lo) / (hi - lo), 0, 1)
-    return np.nan_to_num(rgb)
+    rgb = np.nan_to_num(rgb)
+    try:                                   # light smoothing for display only (radar is speckly); the model still sees the raw data
+        from scipy.ndimage import uniform_filter
+        for b in range(3):
+            rgb[..., b] = uniform_filter(rgb[..., b], size=2)
+    except Exception:
+        pass
+    return rgb
 
 
 # ------------------------------------------------------------------ sidebar
@@ -121,7 +169,8 @@ if source == "Earth Engine":
                 st.session_state["last_pick"] = (lc["lat"], lc["lng"])
                 st.session_state["pick_pending"] = (round(lc["lat"], 4), round(lc["lng"], 4))
                 st.rerun()
-            st.caption("Click to move the marker, then press Run.")
+            nm = place_name(round(lat, 4), round(lon, 4))
+            st.caption((f"**{nm}** — " if nm else "") + f"{lat:.4f}, {lon:.4f}. Click to move the marker, then press Run.")
 else:
     data_dir = sb.text_input("Export folder", "data/raw")
     region_key = sb.text_input("Region", "heidelberg")
@@ -203,11 +252,16 @@ out = proto.analyse(res["preds"], res["members"], res["labels"], res["smooth"])
 preds, stats, labels = out["preds"], out["stats"], res["labels"]
 store, months = res["store"], res["months"]
 
+place_disp = res["place"]
+if isinstance(place_disp, str) and "," in place_disp and all(c in "0123456789.,- " for c in place_disp):
+    la, lo = (float(x) for x in place_disp.split(","))
+    nm = place_name(round(la, 4), round(lo, 4))
+    place_disp = f"{nm}<br><span style='color:#8a929c;font-size:0.85rem'>{la:.3f}, {lo:.3f}</span>" if nm else f"{la:.3f}, {lo:.3f}"
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("Place", res["place"])
-m2.metric("Period", f"{labels[0]} to {labels[-1]}")
-m3.metric("Models in ensemble", res["k"])
-m4.metric("Pixels used for change", f"{stats.valid_fraction.iloc[0] * 100:.0f} %")
+m1.markdown(metric_card("Place", place_disp), unsafe_allow_html=True)
+m2.markdown(metric_card("Period", fmt_period(labels)), unsafe_allow_html=True)
+m3.markdown(metric_card("Models in ensemble", res["k"]), unsafe_allow_html=True)
+m4.markdown(metric_card("Pixels used for change", f"{stats.valid_fraction.iloc[0] * 100:.0f}%"), unsafe_allow_html=True)
 missing = [proto.month_labels([res['ym'][i]])[0] for i in range(len(months)) if not store.s1[months[i], 0].any()]
 if missing:
     st.warning(f"No Sentinel-1 data for: {', '.join(missing)}.")
@@ -259,7 +313,8 @@ with tab_map:
         left.pyplot(fig); plt.close(fig)
         if bounds is None:
             left.caption("No map position for this region, so no basemap. Earth Engine runs always have one.")
-    right.image(false_colour(store, months[i]), caption=f"Sentinel-1, {labels[i]}: R = VV, G = VH, B = VV-VH", clamp=True)
+    right.image(class_rgb(preds[i]), caption=f"Predicted land cover, {labels[i]}", clamp=True, use_container_width=True)
+    right.image(false_colour(store, months[i]), caption=f"Sentinel-1 radar, {labels[i]}: R = VV, G = VH, B = VV-VH", clamp=True, use_container_width=True)
     share = stats.percent.iloc[i]
     right.bar_chart(share.rename("% of area"), height=220, color="#555555")
     if px is not None:
@@ -295,15 +350,30 @@ with tab_share:
                            legend=dict(orientation="h"))
         st.plotly_chart(area, width="stretch")
     st.markdown("**Each class with the spread between ensemble members**")
-    fig, ax = plt.subplots(figsize=(11, 4))
-    for name, color in zip(CLASS_NAMES, CLASS_COLORS):
-        y = stats.percent[name].values
-        ax.plot(labels, y, marker="o", color=color, label=name)
-        if out["spread"] is not None:
-            s = out["spread"][name].values
-            ax.fill_between(labels, y - s, y + s, color=color, alpha=0.2)
-    ax.set_ylabel("% of area"); ax.tick_params(axis="x", rotation=45); ax.grid(alpha=0.3); ax.legend(ncol=3, fontsize=8)
-    plt.tight_layout(); st.pyplot(fig); plt.close(fig)
+    if HAVE_MAP:
+        line = go.Figure()
+        for name, color in zip(CLASS_NAMES, CLASS_COLORS):
+            y = stats.percent[name].values
+            if out["spread"] is not None:                       # one-std band as a filled envelope
+                s = out["spread"][name].values
+                line.add_trace(go.Scatter(x=list(labels) + list(labels)[::-1], y=list(y + s) + list((y - s))[::-1],
+                                          fill="toself", fillcolor=color, opacity=0.18, line=dict(width=0),
+                                          hoverinfo="skip", showlegend=False))
+            line.add_trace(go.Scatter(x=labels, y=y, mode="lines+markers", name=name, line=dict(color=color),
+                                      hovertemplate=name + ": %{y:.1f}%<extra></extra>"))
+        line.update_layout(height=360, yaxis=dict(title="% of area"), margin=dict(l=10, r=10, t=10, b=10),
+                           legend=dict(orientation="h"))
+        st.plotly_chart(line, width="stretch")
+    else:
+        fig, ax = plt.subplots(figsize=(11, 4))
+        for name, color in zip(CLASS_NAMES, CLASS_COLORS):
+            y = stats.percent[name].values
+            ax.plot(labels, y, marker="o", color=color, label=name)
+            if out["spread"] is not None:
+                s = out["spread"][name].values
+                ax.fill_between(labels, y - s, y + s, color=color, alpha=0.2)
+        ax.set_ylabel("% of area"); ax.tick_params(axis="x", rotation=45); ax.grid(alpha=0.3); ax.legend(ncol=3, fontsize=8)
+        plt.tight_layout(); st.pyplot(fig); plt.close(fig)
     if out["spread"] is not None:
         st.caption("Bands show the spread (one standard deviation) between the ensemble members, a measure of model uncertainty.")
     st.download_button("Download shares (CSV)", stats.percent.round(4).to_csv(), "class_shares.csv", "text/csv")
@@ -403,6 +473,19 @@ with tab_years:
                 fig_y.update_layout(barmode="stack", height=320, yaxis=dict(title="% of area", range=[0, 100]),
                                     margin=dict(l=10, r=10, t=10, b=10), legend=dict(orientation="h"))
                 st.plotly_chart(fig_y, width="stretch")
+                if len(ys) >= 2:                                   # animated view: press play to watch the shares change year to year
+                    long = shares.reset_index().melt(id_vars=shares.index.name or "year", var_name="class", value_name="share")
+                    long = long.rename(columns={shares.index.name or "year": "year"})
+                    long["year"] = long["year"].astype(str)
+                    anim = px.bar(long, x="class", y="share", color="class", animation_frame="year",
+                                  color_discrete_map=dict(zip(CLASS_NAMES, CLASS_COLORS)),
+                                  category_orders={"class": list(CLASS_NAMES)},
+                                  range_y=[0, min(100, float(long["share"].max()) * 1.15 + 1)])
+                    anim.update_layout(height=400, showlegend=False, xaxis_title="", yaxis_title="% of area",
+                                       title="Class share by year (press play)", margin=dict(l=10, r=10, t=40, b=10))
+                    st.plotly_chart(anim, width="stretch")
+                    st.caption("Press play to step through the years. There is no ground truth for any year; differences can be noise or "
+                               "fewer scenes, not real change.")
             if len(ys) >= 2:
                 st.markdown("**Change from year to year (percentage points)**")
                 d = shares.diff().iloc[1:].round(2)
