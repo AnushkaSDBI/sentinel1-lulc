@@ -164,8 +164,6 @@ def load_ensemble(weights_dir, device):
     for c in cards[1:]:
         if (c["window_months"], c["channels"], c["norm"]) != (c0["window_months"], c0["channels"], c0["norm"]):
             raise ValueError("the weight folders come from different training setups (window, channels or normalisation differ)")
-    if "coh" in c0["channels"]:
-        raise ValueError("this prototype is Sentinel-1 only; a coherence model cannot be used")
     norm = {k: (v["mean"], v["std"]) for k, v in c0["norm"].items()}
     return list(models), c0, norm, names
 
@@ -173,6 +171,24 @@ def load_ensemble(weights_dir, device):
 def uses_stats(card: dict) -> bool:
     """True when the model was trained with the five yearly-statistic channels."""
     return "st0" in card["channels"]
+
+
+def uses_coh(card: dict) -> bool:
+    """True when the model also reads interferometric coherence channels (research variant, not the Sentinel-1-only model)."""
+    return "coh" in card["channels"]
+
+
+def attach_coherence(store: RegionStore, data_dir, region_key: str) -> bool:
+    """Load a coherence file (HyP3 preferred, else the Earth Engine layer) for the region into the store. Returns False if none."""
+    folder = Path(data_dir) / region_key
+    for name, factor in (("coherence_hyp3.npz", 2), ("coherence.npz", 10)):
+        f = folder / name
+        if f.exists():
+            with np.load(f) as z:
+                store.coh = z["coherence"].astype(np.float16)
+                store.coh_factor = int(z["factor"]) if "factor" in z.files else factor
+            return True
+    return False
 
 
 def load_ood_reference(weights_dir) -> dict | None:
@@ -188,6 +204,9 @@ def run_models(models, store: RegionStore, norm, window, device, progress=None, 
 
     if kw.get("use_stats") and store.stats is None:
         attach_stats(store)             # order-independent, so a 12-month span over two calendar years is fine
+    if kw.get("use_coh") and store.coh is None:
+        raise ValueError("this model needs a coherence file for the area, and none was found "
+                         "(coherence_hyp3.npz in the region folder). Use the Sentinel-1-only model, or a region that has coherence.")
 
     preds, confs, members = [], [], []
     months = [i for i in range(store.s1.shape[0]) if store.present[i]]

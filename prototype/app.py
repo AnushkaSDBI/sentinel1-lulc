@@ -87,6 +87,10 @@ models = card = norm = names = None
 try:
     models, card, norm, names = get_models(weights, device)
     sb.success(f"{len(models)} model(s): {', '.join(names)} on {device.upper()}")
+    if card is not None and proto.uses_coh(card):
+        sb.caption("This is the coherence research model. It needs an interferometric coherence file for the area, which is not "
+                   "fetched live, so it runs only on a local export that already has one, not on an arbitrary Earth Engine place. "
+                   "The main prototype uses the Sentinel-1-only model.")
 except Exception as e:
     sb.error(str(e))
 
@@ -165,8 +169,17 @@ if run:
                 bounds = proto.bounds_latlon(next(r for r in load_config(ROOT / "configs" / "regions.yaml")[1] if r.key == region_key))
             except Exception:
                 bounds = None                                    # region not in the config: plain maps
+        use_coh = proto.uses_coh(card)
+        if use_coh:                                              # coherence research model: load the area's coherence file
+            src_dir = CACHE if source == "Earth Engine" else data_dir
+            key = region.key if source == "Earth Engine" else region_key
+            if not proto.attach_coherence(store, src_dir, key):
+                st.error("The coherence model needs a coherence file for this area, and none is on disk. It is not fetched live. "
+                         "Run it on a local export that has coherence_hyp3.npz, or switch to the Sentinel-1-only model.")
+                st.stop()
+            st.caption("Coherence research model: using the coherence file already on disk for this area.")
         preds, conf, members, months = proto.run_models(
-            models, store, norm, card["window_months"], torch.device(device), use_stats=proto.uses_stats(card),
+            models, store, norm, card["window_months"], torch.device(device), use_stats=proto.uses_stats(card), use_coh=use_coh,
             progress=lambda f, t: bar.progress(0.5 + f * 0.5 if source == "Earth Engine" else f, t))
         labels = proto.month_labels([ym[i] for i in months])
         ood = ood_check(area_signature(conf, members), proto.load_ood_reference(weights))
