@@ -23,7 +23,7 @@ from .torch_data import PatchDataset, extra_spec, n_extra, n_input_channels, pre
 from .yearly import STAT_NAMES
 from .train_math import class_weights, cosine_warmup_lr, sampling_weights
 
-DEFAULTS = dict(region_balance="none", encoder="resnet34", weights=None, window=1, coherence=False, conf_cutoff=0.0,
+DEFAULTS = dict(label_source="dw", region_balance="none", encoder="resnet34", weights=None, window=1, coherence=False, conf_cutoff=0.0,
                 epochs=12, epoch_samples=3000, batch=16, lr=5e-4, weight_decay=1e-4, warmup_frac=0.05,
                 patch=256, ce_weight=1.0, dice_weight=0.5, lovasz_weight=0.0, ema=0.999,
                 val_patches=600, patience=5, workers=2, amp=True, seed=0, class_weight_power=0.5,

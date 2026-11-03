@@ -181,3 +181,18 @@ def apply_agree_filter(store: RegionStore, data_dir) -> int:
     before = store.label != IGNORE_INDEX
     store.label = np.where(store.label == wc[None], store.label, IGNORE_INDEX).astype(store.label.dtype)
     return float(1 - (store.label != IGNORE_INDEX).sum() / max(before.sum(), 1))
+
+
+def apply_worldcover_labels(store: RegionStore, data_dir) -> None:
+    """Replace the TRAINING labels with ESA WorldCover 2021 (annual, same label in every month). Needs reference.npz.
+    After this, WorldCover is no longer an independent check for that model; score against Esri instead."""
+    from pathlib import Path
+    from .classes import remap_worldcover
+    f = Path(data_dir) / store.key / "reference.npz"
+    if not f.exists():
+        raise FileNotFoundError(f"label_source=worldcover needs {f} (run scripts/export_reference.py for the training regions)")
+    with np.load(f) as z:
+        wc = remap_worldcover(z["wc"]).astype(store.label.dtype)
+    if wc.shape != store.label.shape[-2:]:
+        raise ValueError(f"reference grid {wc.shape} does not match the labels {store.label.shape[-2:]} of {store.key}")
+    store.label = np.where(store.present[:, None, None], wc[None], IGNORE_INDEX).astype(store.label.dtype)

@@ -4,8 +4,11 @@ Run from the repository root:   streamlit run prototype/app.py
 """
 from __future__ import annotations
 
+import gzip
 import io
 import os
+import pickle
+import re
 import sys
 from pathlib import Path
 
@@ -19,7 +22,7 @@ import streamlit as st
 import torch
 try:                                   # basemap and charts; the app still runs without them (plain maps)
     import folium
-    import plotly.express as px
+    import plotly.express as pex
     import plotly.graph_objects as go
     from streamlit_folium import st_folium
     HAVE_MAP = True
@@ -38,8 +41,46 @@ CMAP = ListedColormap(["#000000", *CLASS_COLORS])           # 0 = no data, 1..6 
 LEGEND = [Patch(color="#000000", label="no data"), *[Patch(color=c, label=n) for c, n in zip(CLASS_COLORS, CLASS_NAMES)]]
 SIZES = {"2.56 km": 2.56, "5.12 km (default)": 5.12, "10.24 km (slow)": 10.24}
 CACHE = ROOT / ".cache_lulc"
+SAVED = ROOT / "saved_runs"            # pre-computed runs, so a demo replays instantly with no Earth Engine and never fails live
+DEMOS = {                              # places that show strong seasonal change (check each on satellite before recording)
+    "Heidelberg, Germany (city)": (49.40, 8.67, 2021, 1),
+    "Tonle Sap, Cambodia (seasonal lake)": (13.00, 104.05, 2021, 1),
+    "Inner Niger delta, Mali (flood plain)": (15.20, -4.20, 2021, 1),
+    "Gezira, Sudan (irrigated crops)": (14.40, 33.30, 2021, 1),
+    "Poyang Lake, China (seasonal lake)": (29.10, 116.25, 2021, 1),
+    "Punjab, India (double-cropped fields)": (30.90, 75.80, 2021, 1),
+}
+
+
+def _slug(s):
+    return re.sub(r"[^a-z0-9]+", "_", str(s).lower()).strip("_") or "run"
+
+
+def save_run(res):
+    try:
+        SAVED.mkdir(exist_ok=True)
+        with gzip.open(SAVED / f"{_slug(res['place'])}.pkl.gz", "wb") as f:
+            pickle.dump(res, f)
+    except Exception:
+        pass
+
+
+def list_saved():
+    return sorted(SAVED.glob("*.pkl.gz")) if SAVED.exists() else []
+
+
+def load_saved(path):
+    with gzip.open(path, "rb") as f:
+        return pickle.load(f)
 SAT_TILES = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
 SAT_ATTR = "Esri, Maxar, Earthstar Geographics"
+LABEL_TILES = "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
+LABEL_ATTR = "Esri"
+
+
+def add_labels(m):
+    """Overlay place and boundary names on a satellite map (fetched by the viewer's browser)."""
+    folium.TileLayer(tiles=LABEL_TILES, attr=LABEL_ATTR, name="Place names", overlay=True, control=False).add_to(m)
 
 
 
@@ -100,12 +141,15 @@ def place_name(lat: float, lon: float):
 
 
 def base_map(bounds, satellite: bool):
+    from folium.plugins import Fullscreen, MeasureControl
     m = folium.Map(location=[(bounds[0][0] + bounds[1][0]) / 2, (bounds[0][1] + bounds[1][1]) / 2], zoom_start=13,
                    tiles=None, control_scale=True)
-    if satellite:
-        folium.TileLayer(tiles=SAT_TILES, attr=SAT_ATTR, name="Satellite photo").add_to(m)
-    else:
-        folium.TileLayer("OpenStreetMap", name="Street map").add_to(m)
+    # both basemaps as switchable base layers, so the in-map Layers control can toggle them
+    folium.TileLayer(tiles=SAT_TILES, attr=SAT_ATTR, name="Satellite photo", show=satellite).add_to(m)
+    folium.TileLayer("OpenStreetMap", name="Street map", show=not satellite).add_to(m)
+    folium.TileLayer(tiles=LABEL_TILES, attr=LABEL_ATTR, name="Place names", overlay=True, control=True, show=satellite).add_to(m)
+    Fullscreen(title="Full screen", title_cancel="Exit").add_to(m)
+    m.add_child(MeasureControl(primary_length_unit="kilometers"))
     m.fit_bounds(bounds)
     return m
 
@@ -145,23 +189,34 @@ except Exception as e:
 pend = st.session_state.pop("pick_pending", None)      # a click on the picker map, applied before the widgets are built
 if pend:
     st.session_state["lat"], st.session_state["lon"] = pend
+dp = st.session_state.pop("demo_pending", None)        # a chosen demo location, applied before the widgets are built
+if dp:
+    st.session_state["lat"], st.session_state["lon"], st.session_state["year"], st.session_state["start_month"] = dp
 st.session_state.setdefault("lat", 49.4000)
 st.session_state.setdefault("lon", 8.6700)
+st.session_state.setdefault("year", 2021)
+st.session_state.setdefault("start_month", 1)
 sb.header("2. Place and time")
-source = sb.radio("Data source", ["Earth Engine", "Local export (offline test)"])
+source = sb.radio("Data source", ["Earth Engine", "Saved run (offline)", "Local export (offline test)"])
 if source == "Earth Engine":
+    with sb.expander("Quick demo locations (seasonal change)"):
+        dname = st.selectbox("Pick a place", list(DEMOS), key="demo_sel")
+        if st.button("Load this demo"):
+            st.session_state["demo_pending"] = DEMOS[dname]
+            st.rerun()
     project = sb.text_input("Earth Engine project", os.environ.get("EE_PROJECT", ""), type="password")
     c1, c2 = sb.columns(2)
     lat = c1.number_input("Latitude", -80.0, 84.0, key="lat", step=0.01, format="%.4f")
     lon = c2.number_input("Longitude", -180.0, 180.0, key="lon", step=0.01, format="%.4f")
     c1, c2 = sb.columns(2)
-    year = int(c1.number_input("Start year", proto.FIRST_YEAR, 2026, 2024, step=1))
-    month = int(c2.selectbox("Start month", range(1, 13), index=0, format_func=lambda m: proto.MONTH_NAMES[m - 1]))
+    year = int(c1.number_input("Start year", proto.FIRST_YEAR, 2026, key="year", step=1))
+    month = int(c2.selectbox("Start month", range(1, 13), key="start_month", format_func=lambda m: proto.MONTH_NAMES[m - 1]))
     size_km = SIZES[sb.selectbox("Area", list(SIZES), index=1)]
     if HAVE_MAP:
         with sb.expander("Pick the place on a map"):
             pm = folium.Map(location=[lat, lon], zoom_start=10, tiles=None)
             folium.TileLayer(tiles=SAT_TILES, attr=SAT_ATTR, name="Satellite photo").add_to(pm)
+            add_labels(pm)
             folium.Marker([lat, lon]).add_to(pm)
             hit = st_folium(pm, height=260, width=290, returned_objects=["last_clicked"], key="picker")
             lc = (hit or {}).get("last_clicked")
@@ -171,6 +226,16 @@ if source == "Earth Engine":
                 st.rerun()
             nm = place_name(round(lat, 4), round(lon, 4))
             st.caption((f"**{nm}** — " if nm else "") + f"{lat:.4f}, {lon:.4f}. Click to move the marker, then press Run.")
+elif source == "Saved run (offline)":
+    saved = list_saved()
+    if not saved:
+        sb.info("No saved runs yet. Run a place once on Earth Engine and it is saved here for instant, offline replay "
+                "(handy for a demo that must not fail).")
+    else:
+        pickf = sb.selectbox("Saved run", saved, format_func=lambda p: p.stem.replace("_", " "))
+        if sb.button("Load saved run", type="primary"):
+            st.session_state["res"] = load_saved(pickf)
+            st.rerun()
 else:
     data_dir = sb.text_input("Export folder", "data/raw")
     region_key = sb.text_input("Region", "heidelberg")
@@ -178,7 +243,7 @@ else:
 sb.header("3. Options")
 smooth = sb.checkbox("3-month majority smoothing", True,
                      help="Cuts false change by about a third in our test. Turn off to see raw predictions.")
-run = sb.button("Run", type="primary", disabled=models is None)
+run = sb.button("Run", type="primary", disabled=models is None or source == "Saved run (offline)")
 
 # ------------------------------------------------------------------ run
 st.title("Sentinel-1 land cover: 12 monthly maps")
@@ -234,6 +299,7 @@ if run:
         ood = ood_check(area_signature(conf, members), proto.load_ood_reference(weights))
         st.session_state["res"] = dict(ood=ood, store=store, ym=[ym[i] for i in months], months=months, labels=labels, preds=preds,
                                        members=members, reference=reference, bounds=bounds, place=place, smooth=smooth, k=len(models))
+        save_run(st.session_state["res"])     # keep it for instant offline replay later
         bar.empty()
     except Exception as e:
         bar.empty()
@@ -284,8 +350,8 @@ if any(low):
     st.warning("Few Sentinel-1 scenes in: " + ", ".join(f"{labels[k]} ({scenes[k]:.0f})" for k, f in enumerate(low) if f)
                + ". The composite is noisier in these months, and the maps can change for that reason alone.")
 
-tab_map, tab_share, tab_change, tab_years, tab_check, tab_info = st.tabs(
-    ["Maps", "Class shares", "Change", "Change over years", "Check against independent maps", "Method and limits"])
+tab_map, tab_cmp, tab_share, tab_change, tab_years, tab_check, tab_info = st.tabs(
+    ["Maps", "Compare side by side", "Class shares", "Change", "Change over years", "Check against independent maps", "Method and limits"])
 
 with tab_map:
     i = st.select_slider("Month", options=list(range(len(labels))), format_func=lambda k: labels[k], key="month")
@@ -300,7 +366,8 @@ with tab_map:
         m = base_map(bounds, satellite)
         img = proto.highlight_rgba(preds[i], preds[i - 1], CLASS_COLORS) if hl and i > 0 else proto.overlay_rgba(preds[i], CLASS_COLORS)
         folium.raster_layers.ImageOverlay(image=img, bounds=bounds, opacity=alpha,
-                                          name=labels[i]).add_to(m)
+                                          name=f"Land cover ({labels[i]})", overlay=True).add_to(m)
+        folium.LayerControl(collapsed=False).add_to(m)
         hit = st_folium(m, height=520, use_container_width=True, returned_objects=["last_clicked"], key="resmap")
         left.markdown(legend_html(), unsafe_allow_html=True)
         lc = (hit or {}).get("last_clicked")
@@ -337,6 +404,36 @@ with tab_map:
         buf = io.BytesIO(); fig.savefig(buf, dpi=110, bbox_inches="tight")
         st.download_button("Download all maps (PNG)", buf.getvalue(), "lulc_maps.png", "image/png")
         plt.close(fig)
+
+with tab_cmp:
+    st.subheader("Two maps side by side")
+    bounds = res.get("bounds")
+    if not HAVE_MAP or bounds is None:
+        st.info("Side-by-side compare needs the interactive map (install folium) and an Earth Engine run (it has a map position).")
+    else:
+        from folium.plugins import DualMap
+        ref = res.get("reference")
+        right_opts = [f"Month: {lab}" for lab in labels] + (["WorldCover 2021", "Esri 2021"] if ref else [])
+        cL, cR = st.columns(2)
+        li = cL.selectbox("Left map", list(range(len(labels))), format_func=lambda k: labels[k], key="cmp_left")
+        rsel = cR.selectbox("Right map", right_opts, index=min(len(labels) - 1, len(right_opts) - 1), key="cmp_right")
+        center = [(bounds[0][0] + bounds[1][0]) / 2, (bounds[0][1] + bounds[1][1]) / 2]
+        dm = DualMap(location=center, zoom_start=12, tiles=None)
+        for half in (dm.m1, dm.m2):
+            folium.TileLayer(tiles=SAT_TILES, attr=SAT_ATTR, name="Satellite").add_to(half)
+        folium.raster_layers.ImageOverlay(proto.overlay_rgba(preds[li], CLASS_COLORS), bounds=bounds, opacity=0.75).add_to(dm.m1)
+        if rsel.startswith("Month: "):
+            right_img = proto.overlay_rgba(preds[labels.index(rsel[7:])], CLASS_COLORS)
+            right_name = rsel[7:]
+        else:
+            right_img = class_rgb(ref["wc"] if rsel.startswith("WorldCover") else ref["esri"])
+            right_name = rsel
+        folium.raster_layers.ImageOverlay(right_img, bounds=bounds, opacity=0.75).add_to(dm.m2)
+        for half in (dm.m1, dm.m2):
+            half.fit_bounds(bounds)
+        st_folium(dm, height=520, use_container_width=True, returned_objects=[], key="cmpmap")
+        st.caption(f"Left: {labels[li]}. Right: {right_name}. The two maps pan and zoom together.")
+        st.markdown(legend_html(), unsafe_allow_html=True)
 
 with tab_share:
     st.subheader("Share of the area per class (%)")
@@ -477,7 +574,7 @@ with tab_years:
                     long = shares.reset_index().melt(id_vars=shares.index.name or "year", var_name="class", value_name="share")
                     long = long.rename(columns={shares.index.name or "year": "year"})
                     long["year"] = long["year"].astype(str)
-                    anim = px.bar(long, x="class", y="share", color="class", animation_frame="year",
+                    anim = pex.bar(long, x="class", y="share", color="class", animation_frame="year",
                                   color_discrete_map=dict(zip(CLASS_NAMES, CLASS_COLORS)),
                                   category_orders={"class": list(CLASS_NAMES)},
                                   range_y=[0, min(100, float(long["share"].max()) * 1.15 + 1)])

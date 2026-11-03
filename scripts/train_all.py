@@ -21,8 +21,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from lulc.config import load_config  # noqa: E402
 
 
-def load_splits(data, regions, splits, year, conf_cutoff, coherence, stats=False, agree=False):
-    from lulc.data import apply_agree_filter, load_store
+def load_splits(data, regions, splits, year, conf_cutoff, coherence, stats=False, agree=False, label_source="dw"):
+    from lulc.data import apply_agree_filter, apply_worldcover_labels, load_store
     out = {}
     for r in regions:
         if r.split in splits and (Path(data) / r.key).exists():
@@ -31,6 +31,8 @@ def load_splits(data, regions, splits, year, conf_cutoff, coherence, stats=False
             except FileNotFoundError as e:
                 print("skip", r.key, e)
                 continue
+            if label_source == "worldcover":   # train on WorldCover instead of Dynamic World (needs reference.npz)
+                apply_worldcover_labels(out[r.key], data)
             if agree:                    # outside the try: a missing reference must stop the run, not silently drop or keep a region
                 print(f"{r.key}: agree filter removed {100 * apply_agree_filter(out[r.key], data):.0f}% of the labels")
     return out
@@ -84,12 +86,12 @@ def main(argv=None) -> int:
                 raise SystemExit("V2-V4 need V0 and V1 first (they decide the encoder weights)")
             cfg["weights"] = "imagenet" if (np.nan_to_num(s1, nan=-1) > np.nan_to_num(s0, nan=-1)) else None
             print(f"{name}: encoder weights = {cfg['weights']} (V0 {s0:.3f} vs V1 {s1:.3f})")
-        k = (cfg.get("conf_cutoff", 0.0), cfg.get("coherence", False), cfg.get("yearly_stats", False), cfg.get("agree_filter", False))
+        k = (cfg.get("conf_cutoff", 0.0), cfg.get("coherence", False), cfg.get("yearly_stats", False), cfg.get("agree_filter", False), cfg.get("label_source", "dw"))
         if k not in cache:
             cache.clear()
             # Validation labels are never cut: every variant is scored on the same pixels, so the
             # validation mIoU is comparable across variants. Only the training labels use the cutoff.
-            cache[k] = (load_splits(args.data, regions, {"train"}, year, k[0], k[1], k[2], k[3]),
+            cache[k] = (load_splits(args.data, regions, {"train"}, year, k[0], k[1], k[2], k[3], k[4]),
                         load_splits(args.data, regions, {"val"}, year, 0.0, k[1], k[2]))
             print(f"loaded {len(cache[k][0])} train and {len(cache[k][1])} val regions")
             if not cache[k][0] or not cache[k][1]:

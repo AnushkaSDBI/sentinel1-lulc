@@ -173,6 +173,14 @@ def uses_stats(card: dict) -> bool:
     return "st0" in card["channels"]
 
 
+def confidence_mask(preds, conf, floor: float = 0.4, ignore: int = IGNORE_INDEX):
+    """Post-process: set pixels whose ensemble confidence is below `floor` to no-data. Cleaner maps, fewer low-confidence flips.
+    Does not change the model; a display/report knob. Returns a copy."""
+    out = np.asarray(preds).copy()
+    out[np.asarray(conf) < floor] = ignore
+    return out
+
+
 def uses_coh(card: dict) -> bool:
     """True when the model also reads interferometric coherence channels (research variant, not the Sentinel-1-only model)."""
     return "coh" in card["channels"]

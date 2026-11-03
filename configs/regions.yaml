@@ -71,7 +71,7 @@ regions:
   java_rice:          {name: Java (rice, tropical, Indonesia),  lat: -7.50, lon: 110.00, split: test_ood, half_size_km: 5.12}
   mekong_delta:       {name: Mekong delta (water/rice, Vietnam), lat: 10.00, lon: 105.80, split: test_ood, half_size_km: 5.12}
   amazon_para:        {name: Amazon (tropical forest, Brazil),  lat: -3.10, lon: -60.00, split: test_ood, half_size_km: 5.12}
-  cerrado_brazil:     {name: Cerrado (savanna/crop, Brazil),    lat: -15.80, lon: -47.90, split: test_ood, half_size_km: 5.12}
+  cerrado_brazil:     {name: Cerrado (savanna/crop, Brazil),    lat: -15.80, lon: -47.90, split: train, half_size_km: 5.12}
   canada_boreal:      {name: Boreal forest and lakes (Canada),  lat: 54.00, lon: -105.00, split: test_ood, half_size_km: 5.12}
   australia_outback:  {name: Outback (bare/shrub, Australia),   lat: -25.00, lon: 133.00, split: test_ood, half_size_km: 5.12}
   altiplano_andes:    {name: Altiplano (bare/grass, Bolivia),   lat: -16.50, lon: -68.20, split: test_ood, half_size_km: 5.12}
@@ -82,13 +82,13 @@ regions:
   nz_pasture:         {name: Canterbury pasture (New Zealand),  lat: -43.60, lon: 171.60, split: test_ood, half_size_km: 5.12}
   scottish_highlands: {name: Highlands (moor/grass, Scotland),  lat: 57.00, lon: -4.50,  split: test_ood, half_size_km: 5.12}
   iceland_tundra:     {name: Tundra and bare (Iceland),         lat: 64.50, lon: -20.00, split: test_ood, half_size_km: 5.12}
-  kazakh_steppe:      {name: Kazakh steppe (grass/crop),        lat: 50.50, lon: 70.00,  split: test_ood, half_size_km: 5.12}
+  kazakh_steppe:      {name: Kazakh steppe (grass/crop),        lat: 50.50, lon: 70.00,  split: train, half_size_km: 5.12}
   tibetan_plateau:    {name: Tibetan plateau (bare/grass),      lat: 32.00, lon: 88.00,  split: test_ood, half_size_km: 5.12}
   thai_paddy:         {name: Central plain (rice, Thailand),    lat: 15.00, lon: 100.30, split: test_ood, half_size_km: 5.12}
-  ethiopia_highlands: {name: Highlands (crop/grass, Ethiopia),  lat: 9.00, lon: 39.00,   split: test_ood, half_size_km: 5.12}
+  ethiopia_highlands: {name: Highlands (crop/grass, Ethiopia),  lat: 9.00, lon: 39.00,   split: train, half_size_km: 5.12}
   madagascar_plateau: {name: Central plateau (Madagascar),      lat: -19.00, lon: 47.00, split: test_ood, half_size_km: 5.12}
   california_valley:  {name: Central Valley (cropland, USA),    lat: 36.50, lon: -120.00, split: test_ood, half_size_km: 5.12}
-  texas_rangeland:    {name: Rangeland (shrub/grass, Texas USA), lat: 31.00, lon: -100.00, split: test_ood, half_size_km: 5.12}
+  texas_rangeland:    {name: Rangeland (shrub/grass, Texas USA), lat: 31.00, lon: -100.00, split: train, half_size_km: 5.12}
   pantanal_wetland:   {name: Pantanal (wetland/grass, Brazil),  lat: -17.50, lon: -57.00, split: test_ood, half_size_km: 5.12}
   siberia_taiga:      {name: West Siberian taiga (Russia),      lat: 60.00, lon: 90.00,  split: test_ood, half_size_km: 5.12}
   bangladesh_delta:   {name: Ganges delta (water/rice, Bangladesh), lat: 23.00, lon: 90.00, split: test_ood, half_size_km: 5.12}
