@@ -127,6 +127,18 @@ def fetch_reference(ee, region: Region, workdir) -> dict | None:
     return load_reference(path)
 
 
+def fetch_esri_reference(ee, region: Region, year: int, workdir) -> dict | None:
+    """Esri annual land cover for `year` on the region grid, as the independent check for a non-2021 year (2017-2023)."""
+    from .ee_export import build_esri_image, export_esri_region, make_fetcher
+    path = Path(workdir) / region.key / f"reference_esri_{year}.npz"
+    if not path.exists():
+        grid = grid_for_region(region)
+        export_esri_region(grid, make_fetcher(ee, build_esri_image(ee, year), grid), path, {"region": region.key, "year": year})
+    with np.load(path) as z:
+        es = remap_esri(z["esri"], "original")
+    return {"esri": es}
+
+
 def load_reference(path) -> dict | None:
     path = Path(path)
     if not path.exists():

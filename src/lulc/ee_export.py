@@ -288,6 +288,22 @@ ESRI_LULC = "projects/sat-io/open-datasets/landcover/ESRI_Global-LULC_10m_TS"
 REF_BANDS = ("wc", "esri")
 
 
+def build_esri_image(ee, year: int):
+    """Esri / Impact Observatory 10 m annual LULC for `year` (available ~2017-2023), as a single 'esri' band; no-data 0.
+    This is the independent check for years other than 2021 (WorldCover only exists for 2020-2021)."""
+    return (ee.ImageCollection(ESRI_LULC).filterDate(f"{year}-01-01", f"{year + 1}-01-01")
+            .mosaic().select([0]).rename("esri").unmask(0).toFloat())
+
+
+def export_esri_region(grid: Grid, fetch, path: Path, meta: dict, tile_px: int = TILE_PX) -> dict:
+    """Fetch the single Esri band for a region and save it (esri-only reference for a non-2021 year)."""
+    tiles = split_tiles(grid, tile_px)
+    stack = assemble(grid, tiles, [fetch(t) for t in tiles])
+    arr = {"esri": np.clip(np.nan_to_num(stack[0]), 0, 255).astype(np.uint8)}
+    write_atomic(Path(path), arr, {**meta, "esri_only": True, "epsg": grid.epsg, "x0": grid.x0, "y0": grid.y0, "res": grid.res})
+    return {"esri": value_shares(arr["esri"])}
+
+
 def build_reference_image(ee, year: int):
     """WorldCover (only exists for 2021) and Esri LULC of `year`, no-data = 0."""
     if year != 2021:

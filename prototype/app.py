@@ -5,6 +5,7 @@ Run from the repository root:   streamlit run prototype/app.py
 from __future__ import annotations
 
 import gzip
+from collections import Counter
 import io
 import os
 import pickle
@@ -267,11 +268,18 @@ if run:
                 st.warning(w)
             proto.fetch_months(ee, region, ym, CACHE, lambda f, t: bar.progress(f * 0.5, t))
             store = proto.load_store_ym(CACHE, region.key, ym)
+            from collections import Counter
+            ym_year = Counter(y for y, _ in ym).most_common(1)[0][0]        # the dominant calendar year of the 12 months
             if sum(y == 2021 for y, _ in ym) >= 6:
                 try:
-                    reference = proto.fetch_reference(ee, region, CACHE)
+                    reference = proto.fetch_reference(ee, region, CACHE)     # WorldCover + Esri (2021 only)
                 except Exception as e:
                     st.warning(f"Reference maps not available: {e}")
+            elif 2017 <= ym_year <= 2023 and sum(y == ym_year for y, _ in ym) >= 6:
+                try:
+                    reference = proto.fetch_esri_reference(ee, region, ym_year, CACHE)   # Esri annual map for this year (independent)
+                except Exception as e:
+                    st.warning(f"Esri reference for {ym_year} not available: {e}")
             place = f"{lat:.4f}, {lon:.4f}"
             bounds = proto.bounds_latlon(region)
         else:
@@ -413,7 +421,8 @@ with tab_cmp:
     else:
         from folium.plugins import DualMap
         ref = res.get("reference")
-        right_opts = [f"Month: {lab}" for lab in labels] + (["WorldCover 2021", "Esri 2021"] if ref else [])
+        ref_opts = (["WorldCover", "Esri"] if ref and "wc" in ref else (["Esri"] if ref else []))
+        right_opts = [f"Month: {lab}" for lab in labels] + ref_opts
         cL, cR = st.columns(2)
         li = cL.selectbox("Left map", list(range(len(labels))), format_func=lambda k: labels[k], key="cmp_left")
         rsel = cR.selectbox("Right map", right_opts, index=min(len(labels) - 1, len(right_opts) - 1), key="cmp_right")
@@ -426,8 +435,8 @@ with tab_cmp:
             right_img = proto.overlay_rgba(preds[labels.index(rsel[7:])], CLASS_COLORS)
             right_name = rsel[7:]
         else:
-            right_img = class_rgb(ref["wc"] if rsel.startswith("WorldCover") else ref["esri"])
-            right_name = rsel
+            right_img = class_rgb(ref["wc"] if rsel == "WorldCover" else ref["esri"])
+            right_name = rsel + " (reference map)"
         folium.raster_layers.ImageOverlay(right_img, bounds=bounds, opacity=0.75).add_to(dm.m2)
         for half in (dm.m1, dm.m2):
             half.fit_bounds(bounds)
@@ -446,6 +455,19 @@ with tab_share:
         area.update_layout(height=340, yaxis=dict(title="% of area", range=[0, 100]), margin=dict(l=10, r=10, t=10, b=10),
                            legend=dict(orientation="h"))
         st.plotly_chart(area, width="stretch")
+        if len(labels) >= 2:               # press play to step through the 12 months, one month at a time
+            longm = stats.percent.copy(); longm.index = labels
+            longm = longm.reset_index(names="month").melt(id_vars="month", var_name="class", value_name="share")
+            animm = pex.bar(longm, x="class", y="share", color="class", animation_frame="month",
+                            color_discrete_map=dict(zip(CLASS_NAMES, CLASS_COLORS)),
+                            category_orders={"class": list(CLASS_NAMES), "month": list(labels)},
+                            range_y=[0, min(100, float(longm["share"].max()) * 1.15 + 1)])
+            animm.update_layout(height=380, showlegend=False, xaxis_title="", yaxis_title="% of area",
+                                title="Class share month by month (press play)", margin=dict(l=10, r=10, t=40, b=10))
+            if animm.layout.updatemenus:   # slow the animation down so it is readable
+                animm.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 700
+                animm.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = 300
+            st.plotly_chart(animm, width="stretch")
     st.markdown("**Each class with the spread between ensemble members**")
     if HAVE_MAP:
         line = go.Figure()
@@ -580,7 +602,12 @@ with tab_years:
                                   range_y=[0, min(100, float(long["share"].max()) * 1.15 + 1)])
                     anim.update_layout(height=400, showlegend=False, xaxis_title="", yaxis_title="% of area",
                                        title="Class share by year (press play)", margin=dict(l=10, r=10, t=40, b=10))
+                    if anim.layout.updatemenus:        # slow it down; it only has the years you picked, so choose consecutive years for a smooth run
+                        anim.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 900
+                        anim.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = 400
                     st.plotly_chart(anim, width="stretch")
+                    st.caption("The animation only has the years you selected above. Pick consecutive years (e.g. 2021, 2022, 2023, 2024) "
+                               "for a gradual run instead of a jump.")
                     st.caption("Press play to step through the years. There is no ground truth for any year; differences can be noise or "
                                "fewer scenes, not real change.")
             if len(ys) >= 2:
@@ -614,27 +641,34 @@ with tab_years:
 
 with tab_check:
     ref = res["reference"]
+    ref_year = Counter(y for y, _ in res["ym"]).most_common(1)[0][0] if res.get("ym") else 2021
     if ref is None:
-        st.info("Reference maps (WorldCover and Esri 2021) are only used when at least 6 of the 12 months are in 2021, "
-                "or when a local export includes reference.npz.")
+        st.info("Independent maps: WorldCover + Esri for 2021, or the Esri annual map for 2017-2023. They appear when at least "
+                "6 of the 12 months fall in one of those years, or when a local export includes reference.npz. Other years (2024+) "
+                "have no independent annual map yet.")
     else:
+        esri_only = "wc" not in ref
         labels_dw = store.label[months] if store.label is not None else None
         cmp = proto.comparison_table(preds, ref, labels_dw)
         st.dataframe(cmp.round(3))
-        st.caption("**Dynamic World (ceiling)** is the label source the model was trained to imitate: the model cannot be expected to "
-                   "match the reference maps better than it does. **Baseline** paints the whole area with the reference's most "
-                   "frequent class. **share_of_area_%** is the part of the area where the two references agree: the 'agree' scores "
-                   "cover only that easy part.")
+        st.caption("**Dynamic World (ceiling)** is the label source the model was trained to imitate. **Baseline** paints the whole "
+                   "area with the reference's most frequent class. " + ("" if esri_only else "**share_of_area_%** is the part where "
+                   "the two references agree: the 'agree' scores cover only that easy part.")
+                   + (f" Independent map: Esri annual land cover {ref_year}." if esri_only else ""))
         with st.expander("Confusion matrix against Esri (% of each Esri class predicted as each class)"):
             st.dataframe(proto.confusion_vs(preds, ref["esri"]).round(1))
-        cols = st.columns(4)
         annual = np.stack([(preds == k).sum(0) for k in range(6)]).argmax(0)
-        for c, (name, arr) in zip(cols, [("Model, most frequent class", annual), ("WorldCover 2021", ref["wc"]),
-                                         ("Esri 2021", ref["esri"]), ("Both agree", ref["agree"])]):
+        panels = [("Model, most frequent class", annual)]
+        if not esri_only:
+            panels += [("WorldCover 2021", ref["wc"]), ("Esri 2021", ref["esri"]), ("Both agree", ref["agree"])]
+        else:
+            panels += [(f"Esri {ref_year}", ref["esri"])]
+        cols = st.columns(len(panels))
+        for c, (name, arr) in zip(cols, panels):
             fig, ax = plt.subplots(figsize=(4, 4))
             ax.imshow(show(arr), cmap=CMAP, vmin=0, vmax=6, interpolation="nearest"); ax.axis("off"); ax.set_title(name, fontsize=9)
             c.pyplot(fig); plt.close(fig)
-        st.caption("Both reference maps are annual and use their own class definitions, so part of every disagreement is definitional.")
+        st.caption("Reference maps are annual and use their own class definitions, so part of every disagreement is definitional.")
 
 with tab_info:
     st.markdown(f"""

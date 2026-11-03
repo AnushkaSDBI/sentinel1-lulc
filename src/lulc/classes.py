@@ -30,12 +30,12 @@ CLASS_NAMES: tuple[str, ...] = (
 N_CLASSES = len(CLASS_NAMES)
 
 CLASS_COLORS: tuple[str, ...] = (
-    "#006400",  # tree cover      (ESA WorldCover legend colours, so maps look like the reference maps)
-    "#ffff4c",  # grass/shrub     (WorldCover grassland; shrubland is #ffbb22)
-    "#f096ff",  # cropland
-    "#fa0000",  # built-up
-    "#b4b4b4",  # bare
-    "#0064c8",  # water
+    "#1a7a1a",  # tree cover   dark green
+    "#8fd18f",  # grass/shrub  light green
+    "#e6c200",  # cropland     yellow
+    "#4d4d4d",  # built-up     dark grey
+    "#e8e8e8",  # bare         light grey / near-white
+    "#1f6fc0",  # water        blue
 )
 
 # ESA WorldCover value -> LULC index
