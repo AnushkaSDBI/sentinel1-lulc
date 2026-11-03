@@ -28,7 +28,29 @@ DEFAULTS = dict(label_source="dw", region_balance="none", encoder="resnet34", we
                 patch=256, ce_weight=1.0, dice_weight=0.5, lovasz_weight=0.0, ema=0.999,
                 val_patches=600, patience=5, workers=2, amp=True, seed=0, class_weight_power=0.5,
                 yearly_stats=False, speckle_p=0.0, speckle_looks=10.0,
-                label_smoothing=0.0, db_shift=0.0, month_dropout=0.0, jitter=0, agree_filter=False)
+                label_smoothing=0.0, db_shift=0.0, month_dropout=0.0, jitter=0, agree_filter=False, boundary_weight=0.0)
+
+
+def boundary_band(y: torch.Tensor, ignore: int = IGNORE_INDEX, width: int = 1) -> torch.Tensor:
+    """(B,H,W) bool: pixels within `width` pixels of a label boundary (two valid, different classes touch)."""
+    edge = torch.zeros_like(y, dtype=torch.bool)
+    for dim in (1, 2):
+        a, b = y.narrow(dim, 1, y.shape[dim] - 1), y.narrow(dim, 0, y.shape[dim] - 1)
+        d = (a != b) & (a != ignore) & (b != ignore)
+        edge.narrow(dim, 1, y.shape[dim] - 1).logical_or_(d)
+        edge.narrow(dim, 0, y.shape[dim] - 1).logical_or_(d)
+    k = 2 * width + 1
+    band = torch.nn.functional.max_pool2d(edge.float().unsqueeze(1), k, 1, width).squeeze(1) > 0
+    return band & (y != ignore)
+
+
+def boundary_ce(logits, y, class_w, bw: float, ignore: int = IGNORE_INDEX):
+    """Cross-entropy with extra weight (1 + bw) on pixels at label boundaries, normalised like the plain weighted mean."""
+    per = nn.functional.cross_entropy(logits, y, weight=class_w, ignore_index=ignore, reduction="none")
+    w = 1.0 + bw * boundary_band(y, ignore).float()
+    valid = y != ignore
+    denom = (class_w[y.clamp(max=class_w.numel() - 1)] * w * valid).sum().clamp(min=1e-6)
+    return (per * w).sum() / denom
 
 
 def seed_all(seed: int) -> None:
@@ -139,7 +161,10 @@ def run(cfg: dict, train_stores: dict, val_stores: dict, out_dir, device=None, l
             with torch.autocast(device_type=device.type, enabled=cfg["amp"] and device.type == "cuda"):
                 logits = model(x)
             logits = logits.float()
-            loss = cfg["ce_weight"] * ce(logits, y)
+            if cfg["boundary_weight"] > 0:      # sharper borders: errors on label boundaries count more
+                loss = cfg["ce_weight"] * boundary_ce(logits, y, cw, cfg["boundary_weight"])
+            else:
+                loss = cfg["ce_weight"] * ce(logits, y)
             if cfg["dice_weight"] > 0: loss = loss + cfg["dice_weight"] * dice(logits, y)
             if lov is not None: loss = loss + cfg["lovasz_weight"] * lov(logits, y)
             opt.zero_grad(set_to_none=True)

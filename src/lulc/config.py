@@ -76,3 +76,21 @@ def load_config(path: str | Path) -> tuple[int, list[Region]]:
         )
     validate_no_overlap(regions)
     return int(cfg["year"]), regions
+
+
+def load_years(path: str | Path) -> dict[str, list[int]]:
+    """Years used per role: {'train': [...], 'val': [...], 'test': [...]}.
+
+    Read from the optional `years:` block of the YAML. Without it, every role uses the
+    single label year, which is the old one-year behaviour. A year may not be both a
+    training year and a test year: that would leak the imagery of a test year into training.
+    """
+    with open(path, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    base = int(cfg["year"])
+    y = cfg.get("years") or {}
+    out = {k: [int(v) for v in y.get(k, [base])] for k in ("train", "val", "test")}
+    clash = set(out["train"]) & set(out["test"])
+    if clash and (cfg.get("years") or {}).get("test"):
+        raise ValueError(f"years in both train and test: {sorted(clash)}")
+    return out

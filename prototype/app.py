@@ -247,6 +247,7 @@ smooth = sb.checkbox("3-month majority smoothing", True,
 run = sb.button("Run", type="primary", disabled=models is None or source == "Saved run (offline)")
 
 # ------------------------------------------------------------------ run
+st.markdown("<style>[data-testid='stImage'] img{image-rendering:pixelated;image-rendering:crisp-edges}</style>", unsafe_allow_html=True)   # no browser smoothing on class maps
 st.title("Sentinel-1 land cover: 12 monthly maps")
 st.caption("Sentinel-1 radar only. Six classes: " + ", ".join(CLASS_NAMES) + ".")
 
@@ -367,7 +368,7 @@ with tab_map:
     left, right = st.columns(2)
     if HAVE_MAP and bounds is not None:
         c1, c2 = left.columns(2)
-        alpha = c1.slider("Class layer opacity", 0.0, 1.0, 0.6, 0.05)
+        alpha = c1.slider("Class layer opacity", 0.0, 1.0, 0.85, 0.05)
         satellite = c2.radio("Basemap", ["Satellite photo", "Street map"], horizontal=True) == "Satellite photo"
         hl = left.checkbox("Highlight pixels that changed since the previous month", False, disabled=i == 0,
                            help="Unchanged pixels are faded. Most highlighted pixels are noise, see the Change tab.")

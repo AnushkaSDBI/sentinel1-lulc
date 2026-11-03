@@ -139,7 +139,7 @@ def test_map_helpers():
     pred = np.array([[0, 3], [255, 5]], np.uint8)
     rgba = overlay_rgba(pred, CLASS_COLORS)
     assert rgba.shape == (2, 2, 4) and rgba[1, 0, 3] == 0 and rgba[0, 0, 3] == 255
-    assert tuple(rgba[0, 1, :3]) == (0xfa, 0, 0)                       # built-up is WorldCover red
+    assert tuple(rgba[0, 1, :3]) == (0x4d, 0x4d, 0x4d)                 # built-up is dark grey
     b = [[49.0, 8.0], [49.1, 8.2]]
     assert click_to_pixel(49.05, 8.1, b, (100, 100)) == (50, 50)
     assert click_to_pixel(49.2, 8.1, b, (100, 100)) is None
@@ -331,3 +331,42 @@ def test_final_bundle_roundtrip(tmp_path):
     from lulc import proto
     ms, card, norm, names = proto.load_ensemble(tmp_path, torch.device("cpu"))
     assert len(ms) == 1 and names == ["seed0"]
+
+
+def test_prototype_coherence_wiring(tmp_path):
+    import numpy as np
+    from lulc import proto
+    from lulc.data import RegionStore
+
+    assert proto.uses_coh({"channels": ["vv", "vh", "coh"]}) is True
+    assert proto.uses_coh({"channels": ["vv", "vh"]}) is False
+    # attach_coherence finds the HyP3 file and sets factor 2
+    d = tmp_path / "blackforest"; d.mkdir()
+    np.savez(d / "coherence_hyp3.npz", coherence=np.full((4, 20, 20), 0.5, np.float16), factor=np.array(2))
+    st = RegionStore(key="blackforest", split="test", s1=np.zeros((12, 2, 40, 40), np.uint8),
+                     label=None, present=np.ones(12, bool))
+    assert proto.attach_coherence(st, tmp_path, "blackforest") and st.coh.shape == (4, 20, 20) and st.coh_factor == 2
+    # run_models refuses a coherence model when no coherence is attached
+    st2 = RegionStore(key="x", split="test", s1=np.zeros((1, 2, 8, 8), np.uint8), label=None, present=np.ones(1, bool))
+    import pytest
+    with pytest.raises(ValueError, match="coherence file"):
+        proto.run_models([object()], st2, {}, 3, "cpu", use_coh=True)
+    assert proto.attach_coherence(st2, tmp_path, "missing") is False
+
+
+def test_worldcover_labels_and_confidence_mask(tmp_path):
+    import numpy as np
+    from lulc.data import apply_worldcover_labels, load_store
+    from lulc import proto
+    _make(tmp_path, "a", 0)
+    st = load_store(tmp_path, "a", "train")
+    h, w = st.label.shape[-2:]
+    wc = np.random.randint(10, 96, (h, w)).astype(np.int32)
+    np.savez(tmp_path / "a" / "reference.npz", wc=wc, esri=wc)
+    before = st.label.copy()
+    apply_worldcover_labels(st, tmp_path)
+    assert st.label.shape == before.shape and st.label.dtype == before.dtype
+    # confidence mask sets low-confidence pixels to ignore
+    preds = np.zeros((3, 4, 4), np.uint8); conf = np.full((3, 4, 4), 0.9, np.float32); conf[0, 0, 0] = 0.1
+    m = proto.confidence_mask(preds, conf, floor=0.4)
+    assert m[0, 0, 0] == 255 and m[1, 1, 1] == 0

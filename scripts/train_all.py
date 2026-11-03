@@ -22,19 +22,28 @@ from lulc.config import load_config  # noqa: E402
 
 
 def load_splits(data, regions, splits, year, conf_cutoff, coherence, stats=False, agree=False, label_source="dw"):
+    """`year` is one year or a list of years. With several years every region-year is its own store,
+    keyed 'region@year'. Each year gets its own yearly statistics, because stats are computed per store."""
     from lulc.data import apply_agree_filter, apply_worldcover_labels, load_store
+    years = [year] if isinstance(year, int) else list(year)
+    if len(years) > 1 and (agree or label_source == "worldcover"):
+        raise SystemExit("WorldCover/agree labels exist for 2021 only; use label_source dw for several years")
     out = {}
     for r in regions:
         if r.split in splits and (Path(data) / r.key).exists():
-            try:
-                out[r.key] = load_store(data, r.key, r.split, year, conf_cutoff, coherence, stats=stats)
-            except FileNotFoundError as e:
-                print("skip", r.key, e)
-                continue
-            if label_source == "worldcover":   # train on WorldCover instead of Dynamic World (needs reference.npz)
-                apply_worldcover_labels(out[r.key], data)
-            if agree:                    # outside the try: a missing reference must stop the run, not silently drop or keep a region
-                print(f"{r.key}: agree filter removed {100 * apply_agree_filter(out[r.key], data):.0f}% of the labels")
+            for y in years:
+                try:
+                    st = load_store(data, r.key, r.split, y, conf_cutoff, coherence, stats=stats)
+                except FileNotFoundError as e:
+                    print("skip", r.key, y, e)
+                    continue
+                if label_source == "worldcover":   # train on WorldCover instead of Dynamic World (needs reference.npz)
+                    apply_worldcover_labels(st, data)
+                if agree:                    # outside the try: a missing reference must stop the run, not silently drop or keep a region
+                    print(f"{r.key}: agree filter removed {100 * apply_agree_filter(st, data):.0f}% of the labels")
+                name = r.key if len(years) == 1 else f"{r.key}@{y}"
+                st.key = name
+                out[name] = st
     return out
 
 
@@ -52,6 +61,8 @@ def main(argv=None) -> int:
     ap.add_argument("--variants", nargs="*")
     ap.add_argument("--seeds", type=int, nargs="*")
     ap.add_argument("--epochs", type=int)
+    ap.add_argument("--train-years", type=int, nargs="*", help="training years (default: years.train in the config)")
+    ap.add_argument("--val-years", type=int, nargs="*", help="validation years (default: years.val in the config)")
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--only", nargs="*", default=[], help="train and validate on these region keys only (e.g. the rural tiles that have HyP3 coherence)")
     ap.add_argument("--exclude", nargs="*", default=[], help="region keys to leave out, e.g. the five new southern/arid tiles, so a variant is compared on the old data")
@@ -60,6 +71,13 @@ def main(argv=None) -> int:
     from lulc.train import run
     exp = yaml.safe_load(Path(args.experiments).read_text())
     year, regions = load_config(args.config)
+    from lulc.config import load_years
+    yrs = load_years(args.config)
+    train_years = args.train_years or yrs["train"]
+    val_years = args.val_years or yrs["val"]
+    if set(train_years) & set(yrs["test"]) and yrs["test"] != [year]:
+        raise SystemExit(f"train years {train_years} overlap test years {yrs['test']}")
+    print(f"training years {train_years}, validation years {val_years}")
     unknown = set(args.exclude) - {r.key for r in regions}
     if unknown:
         raise SystemExit(f"--exclude names unknown regions: {sorted(unknown)}")
@@ -91,8 +109,8 @@ def main(argv=None) -> int:
             cache.clear()
             # Validation labels are never cut: every variant is scored on the same pixels, so the
             # validation mIoU is comparable across variants. Only the training labels use the cutoff.
-            cache[k] = (load_splits(args.data, regions, {"train"}, year, k[0], k[1], k[2], k[3], k[4]),
-                        load_splits(args.data, regions, {"val"}, year, 0.0, k[1], k[2]))
+            cache[k] = (load_splits(args.data, regions, {"train"}, train_years, k[0], k[1], k[2], k[3], k[4]),
+                        load_splits(args.data, regions, {"val"}, val_years, 0.0, k[1], k[2]))
             print(f"loaded {len(cache[k][0])} train and {len(cache[k][1])} val regions")
             if not cache[k][0] or not cache[k][1]:
                 raise SystemExit(f"{name}: no {'train' if not cache[k][0] else 'validation'} regions could be loaded. Look at the 'skip' lines above: "
@@ -105,6 +123,7 @@ def main(argv=None) -> int:
                 print("skip", d); continue
             print(f"=== {name} seed {seed}")
             res = run({**cfg, "seed": seed}, tr, va, d)
+            (d / "years.json").write_text(json.dumps({"train": train_years, "val": val_years}))
             (d / "summary.json").write_text(json.dumps({"best_val_miou": res["best_val_miou"], "variant": name, "seed": seed}))
     rows = []
     for p in sorted(Path(args.out).glob("*/seed*/summary.json")):

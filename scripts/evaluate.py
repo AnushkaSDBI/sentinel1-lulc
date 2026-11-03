@@ -45,6 +45,7 @@ def main(argv=None) -> int:
     from lulc.infer import predict_region
     from lulc.metrics import ConfusionMatrix, bootstrap_miou
     from lulc.ood import area_signature
+    from lulc.sharpness import boundary_counts, f1_from_counts
     from lulc.train import load_model
 
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -63,6 +64,9 @@ def main(argv=None) -> int:
               "report Esri as the independent check.")
     out = Path(args.runs) / f"eval_{args.variant}{args.tag}"; out.mkdir(parents=True, exist_ok=True)
     print(f"{len(models)} seeds, window {window}, coherence {use_coh}, yearly stats {use_stats}, year {year}")
+    if year != cfg_year:
+        print(f"NOTE: year {year} differs from the label year {cfg_year}. Only Dynamic World of {year} is used; the WorldCover/Esri rows "
+              "and the stable-land flicker test (2021 maps) are skipped.")
 
     scheme = args.esri_scheme
     if scheme is None:
@@ -80,6 +84,8 @@ def main(argv=None) -> int:
     group_of = {}
     ood_rows = []                       # label-free signature per region, for the prototype warning
     by_month = {}                       # calendar month -> pooled confusion matrix vs Dynamic World
+    bnd = {"raw": np.zeros(4), "majority": np.zeros(4), "label_vs_esri": np.zeros(4)}   # pooled boundary counts vs Dynamic World
+    bnd_rows = []
     for r in regions:
         if r.split not in args.splits or not (Path(args.data) / r.key).exists():
             continue
@@ -90,6 +96,11 @@ def main(argv=None) -> int:
         lab = store.label[months]
         cms = {k: ConfusionMatrix(N_CLASSES) for k in per}
         cms["dw"].update(preds, lab)
+        c_raw = boundary_counts(preds, lab, 1)                         # border sharpness of the raw model maps
+        c_maj = boundary_counts(temporal_majority(preds, args.smooth), lab, 1) if len(months) >= 3 else c_raw
+        bnd["raw"] += c_raw; bnd["majority"] += c_maj
+        bnd_rows.append({"region": r.key, "group": group_of[r.key], "bf1_raw": f1_from_counts(c_raw), "bf1_majority": f1_from_counts(c_maj),
+                         "pred_border_px": c_raw[1], "ref_border_px": c_raw[3]})
         if args.prob_smooth and len(months) >= 3:
             ps = probability_smooth(res[4], args.smooth)
             cms["dw_majority"].update(temporal_majority(preds, args.smooth), lab)
@@ -99,7 +110,7 @@ def main(argv=None) -> int:
             by_month.setdefault(mi + 1, ConfusionMatrix(N_CLASSES)).update(preds[t], lab[t])
         ref = Path(args.data) / r.key / "reference.npz"
         stable = None
-        if ref.exists():
+        if ref.exists() and year == cfg_year:     # WorldCover/Esri here are 2021 maps; never score another year against them
             with np.load(ref) as z:
                 wc, es = remap_worldcover(z["wc"]), remap_esri(z["esri"], scheme)
             stable = stable_mask(wc, es)
@@ -123,6 +134,12 @@ def main(argv=None) -> int:
             change_rows.append({"region": r.key, "maps": "member_spread_pp_mean", "monthly_churn_pp": float(spread["std"].mean())})
         print(f"{r.key:12s} mIoU vs DW {cms['dw'].miou():.3f}  OA {cms['dw'].oa:.3f}")
 
+    if bnd_rows:
+        pd.DataFrame(bnd_rows).to_csv(out / "boundary.csv", index=False)
+        print(f"\nBoundary F1 vs Dynamic World (1 px tolerance, pooled): raw {f1_from_counts(bnd['raw']):.3f}, "
+              f"after {args.smooth}-month majority {f1_from_counts(bnd['majority']):.3f}. "
+              f"Predicted border pixels / reference border pixels: {bnd['raw'][1] / max(bnd['raw'][3], 1):.2f} "
+              "(above 1 = speckly, noisy borders; below 1 = soft, merged borders)")
     pd.DataFrame(city_rows).to_csv(out / "per_city.csv", index=False)
     # in_dist = held-out cities of the normal test split; OOD cities (Milan, Valencia) and rural tiles listed separately
     ref = {"in_dist": [{k: v for k, v in o.items() if k != "split"} for o in ood_rows if o["split"] == "test" and o["group"] == "cities"],
