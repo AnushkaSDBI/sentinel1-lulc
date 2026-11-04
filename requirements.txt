@@ -19,3 +19,4 @@ plotly
 asf_search
 hyp3_sdk
 rasterio
+scikit-image

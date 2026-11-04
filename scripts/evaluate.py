@@ -37,7 +37,15 @@ def main(argv=None) -> int:
                     help="also score smoothing in probability space (mean softmax over the window) against the majority vote; needs about 1 GB extra for a 24 km city")
     ap.add_argument("--smooth", type=int, default=3)
     ap.add_argument("--esri-scheme", choices=["original", "remapped"], help="default: detected from all selected cities pooled")
+    ap.add_argument("--patch", type=int, default=512, help="sliding-window size in pixels for inference (models are trained at 256)")
+    ap.add_argument("--overlap", type=int, default=64, help="sliding-window overlap in pixels")
+    ap.add_argument("--min-class-share", type=float, default=0.01,
+                    help="per-region 'major class' mIoU counts only classes with at least this share of the region's reference pixels")
     args = ap.parse_args(argv)
+    if not 0 <= args.overlap < args.patch:
+        raise SystemExit(f"--overlap must be at least 0 and smaller than --patch, got overlap {args.overlap}, patch {args.patch}")
+    if not 0 <= args.min_class_share < 1:
+        raise SystemExit(f"--min-class-share must be at least 0 and below 1, got {args.min_class_share}")
 
     import torch
     from lulc.change_eval import false_change, member_spread, probability_smooth, stable_mask, temporal_majority
@@ -63,7 +71,7 @@ def main(argv=None) -> int:
         print("NOTE: this model was trained on labels filtered by WorldCover. Scores against WorldCover are no longer independent; "
               "report Esri as the independent check.")
     out = Path(args.runs) / f"eval_{args.variant}{args.tag}"; out.mkdir(parents=True, exist_ok=True)
-    print(f"{len(models)} seeds, window {window}, coherence {use_coh}, yearly stats {use_stats}, year {year}")
+    print(f"{len(models)} seeds, window {window}, coherence {use_coh}, yearly stats {use_stats}, year {year}, patch {args.patch}, overlap {args.overlap}")
     if year != cfg_year:
         print(f"NOTE: year {year} differs from the label year {cfg_year}. Only Dynamic World of {year} is used; the WorldCover/Esri rows "
               "and the stable-land flicker test (2021 maps) are skipped.")
@@ -79,7 +87,7 @@ def main(argv=None) -> int:
                     vals |= set(np.unique(z["esri"]).tolist())
         scheme = detect_esri_scheme(np.array(sorted(v for v in vals if v > 0))) if vals else None
         print("Esri scheme:", scheme)
-    per = {s: {} for s in ("dw", "wc", "esri", "agree", *(("dw_majority", "dw_probmean") if args.prob_smooth else ()))}
+    per = {s: {} for s in ("dw", "wc", "esri", "agree", "dw_wc_agree", *(("dw_majority", "dw_probmean") if args.prob_smooth else ()))}
     change_rows, city_rows = [], []
     group_of = {}
     ood_rows = []                       # label-free signature per region, for the prototype warning
@@ -91,7 +99,8 @@ def main(argv=None) -> int:
             continue
         group_of[r.key] = "cities" if r.half_size_km > 6 else "rural"
         store = load_store(args.data, r.key, r.split, year, 0.0, ((card.get("config") or {}).get("coherence") or use_coh) if use_coh else False, stats=use_stats)
-        res = predict_region(list(models), store, norm, window, dev, use_coh=use_coh, use_stats=use_stats, return_probs=args.prob_smooth)
+        res = predict_region(list(models), store, norm, window, dev, use_coh=use_coh, use_stats=use_stats, return_probs=args.prob_smooth,
+                             patch=args.patch, overlap=args.overlap)
         preds, conf, members, months = res[:4]
         lab = store.label[months]
         cms = {k: ConfusionMatrix(N_CLASSES) for k in per}
@@ -117,11 +126,13 @@ def main(argv=None) -> int:
             for t in range(len(months)):
                 cms["wc"].update(preds[t], wc); cms["esri"].update(preds[t], es)
                 cms["agree"].update(preds[t], np.where(stable, wc, IGNORE_INDEX))
+                cms["dw_wc_agree"].update(preds[t], np.where(lab[t] == wc, wc, IGNORE_INDEX))   # Dynamic World scored only where WorldCover agrees
         for k in per:
             per[k][r.key] = cms[k]
         sig = area_signature(conf, members)
-        ood_rows.append({"region": r.key, "split": r.split, "group": group_of[r.key], **sig, "miou_dw": cms["dw"].miou()})
-        city_rows.append({"region": r.key, "split": r.split, "climate": r.climate, **sig, **{f"{k}_miou": cms[k].miou() for k in cms},
+        major = {"dw_miou_major": cms["dw"].miou_major(args.min_class_share), "n_major_classes": int(cms["dw"].major_classes(args.min_class_share).sum())}
+        ood_rows.append({"region": r.key, "split": r.split, "group": group_of[r.key], **sig, "miou_dw": cms["dw"].miou(), **major})
+        city_rows.append({"region": r.key, "split": r.split, "climate": r.climate, **sig, **{f"{k}_miou": cms[k].miou() for k in cms}, **major,
                           **{f"{k}_oa": cms[k].oa for k in cms}, **{f"iou_{c}": v for c, v in zip(CLASS_NAMES, cms["dw"].iou())}})
         if stable is not None and len(months) >= 3:
             sm = temporal_majority(preds, args.smooth)
@@ -132,7 +143,7 @@ def main(argv=None) -> int:
             for name, p in variants:
                 change_rows.append({"region": r.key, "maps": name, **false_change(p, stable)})
             change_rows.append({"region": r.key, "maps": "member_spread_pp_mean", "monthly_churn_pp": float(spread["std"].mean())})
-        print(f"{r.key:12s} mIoU vs DW {cms['dw'].miou():.3f}  OA {cms['dw'].oa:.3f}")
+        print(f"{r.key:12s} mIoU vs DW {cms['dw'].miou():.3f}  OA {cms['dw'].oa:.3f}  major-class mIoU {major['dw_miou_major']:.3f} ({major['n_major_classes']} classes)")
 
     if bnd_rows:
         pd.DataFrame(bnd_rows).to_csv(out / "boundary.csv", index=False)
@@ -149,14 +160,28 @@ def main(argv=None) -> int:
         from scipy.stats import spearmanr
         rho = spearmanr([o["mean_conf"] for o in ood_rows], [o["miou_dw"] for o in ood_rows])[0]
         print(f"Spearman(mean confidence, mIoU vs DW) over {len(ood_rows)} regions: {rho:.2f}  (the OOD warning is only useful if this is clearly positive)")
+        multi = [o for o in ood_rows if o["n_major_classes"] >= 2]
+        if len(multi) >= 4:
+            rho_major = spearmanr([o["mean_conf"] for o in multi], [o["dw_miou_major"] for o in multi])[0]
+            print(f"Spearman(mean confidence, major-class mIoU) over {len(multi)} regions with at least 2 major classes: {rho_major:.2f}")
     if city_rows:
-        cdf = pd.DataFrame(city_rows)
-        cdf = cdf[cdf.climate != ""]
+        all_regions = pd.DataFrame(city_rows)
+        # A one-class region has no class to confuse, so its score says little: left out of these means, flagged in per_city.csv (n_major_classes).
+        all_regions["miou_major_multi"] = all_regions.dw_miou_major.where(all_regions.n_major_classes >= 2)
+        single = all_regions.loc[all_regions.n_major_classes < 2, "region"].tolist()
+        print(f"\nPer-region major-class mIoU vs Dynamic World (classes with at least {args.min_class_share:.1%} of a region's reference pixels; "
+              f"one-class regions left out: {', '.join(single) or 'none'}):")
+        for grp in ("cities", "rural"):
+            v = all_regions.loc[[group_of[k] == grp for k in all_regions.region], "miou_major_multi"].dropna()
+            if len(v):
+                print(f"  {grp:6s} mean {v.mean():.3f}  median {v.median():.3f}  ({len(v)} regions)")
+        cdf = all_regions[all_regions.climate != ""]
         if len(cdf):
-            clim = cdf.groupby("climate")[["dw_miou", "dw_oa", "mean_conf"]].agg(["mean", "count"]).round(3)
+            clim = cdf.groupby("climate")[["dw_miou", "miou_major_multi", "dw_oa", "mean_conf"]].agg(["mean", "count"]).round(3)
             clim.to_csv(out / "per_climate.csv")
-            print("\nPer climate group (mean over regions; one tile can dominate a group, read with the region table):")
-            print(cdf.groupby("climate").agg(n=("region", "count"), mIoU=("dw_miou", "mean"), OA=("dw_oa", "mean"), conf=("mean_conf", "mean")).round(3))
+            print("\nPer climate group (mean over regions; one tile can dominate a group, read with the region table; mIoU_major leaves out one-class regions):")
+            print(cdf.groupby("climate").agg(n=("region", "count"), mIoU=("dw_miou", "mean"), mIoU_major=("miou_major_multi", "mean"),
+                                             OA=("dw_oa", "mean"), conf=("mean_conf", "mean")).round(3))
     pd.DataFrame(change_rows).to_csv(out / "change.csv", index=False)
     metrics, class_rows = {}, []
     for k, per_region in per.items():

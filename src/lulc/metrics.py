@@ -3,6 +3,11 @@
 mIoU is the mean over classes that occur in the reference (support > 0). A class that
 never occurs in the reference has IoU NaN and is skipped, so absent classes do not
 drag the mean to zero. Report per-class IoU next to every mIoU.
+
+On a small tile, a class with a handful of reference pixels counts as much as the dominant
+class. miou_major() averages only classes above a minimum share of the reference, for
+comparing regions. It is a companion to miou(), not a replacement: predictions of a dropped
+class still lower the IoU of the classes kept, but the dropped class's own IoU is not averaged.
 """
 
 from __future__ import annotations
@@ -76,6 +81,16 @@ class ConfusionMatrix:
     def miou(self) -> float:
         v = self.iou()
         return float(np.nanmean(v)) if np.isfinite(v).any() else float("nan")
+
+    def major_classes(self, min_share: float = 0.01) -> np.ndarray:
+        """Boolean mask of classes holding at least min_share of the reference pixels (never an absent class)."""
+        sup = self.support
+        return (sup > 0) & (sup >= min_share * sup.sum())
+
+    def miou_major(self, min_share: float = 0.01) -> float:
+        """Mean IoU over major_classes(min_share). NaN if the matrix is empty."""
+        keep = self.major_classes(min_share)
+        return float(self.iou()[keep].mean()) if keep.any() else float("nan")
 
 
 def bootstrap_miou(per_city: dict[str, ConfusionMatrix], n_boot: int = 1000, seed: int = 0) -> dict:

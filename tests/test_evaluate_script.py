@@ -47,6 +47,14 @@ def test_evaluate_with_stats_model(tmp_path):
     ref = json.loads((out / "ood_reference.json").read_text())
     assert len(ref["in_dist"]) == 4 and 0 < ref["in_dist"][0]["mean_conf"] <= 1
     assert (out / "per_climate.csv").exists() and "climate" in (out / "per_city.csv").read_text().splitlines()[0]
+    # both fixture classes hold half of each tile, so both count as major and the two scores coincide
+    import pandas as pd
+    per_city = pd.read_csv(out / "per_city.csv")
+    assert (per_city.n_major_classes == 2).all() and np.allclose(per_city.dw_miou_major, per_city.dw_miou)
+    assert "miou_major_multi" in (out / "per_climate.csv").read_text()
+    with pytest.raises(SystemExit):
+        evaluate.main(["--data", str(tmp_path / "raw"), "--runs", str(tmp_path / "runs"), "--variant", "VX", "--config", str(yml),
+                       "--min-class-share", "1.5"])
     # precision / recall / kappa table and the probability-smoothing comparison
     assert evaluate.main(["--data", str(tmp_path / "raw"), "--runs", str(tmp_path / "runs"), "--variant", "VX",
                           "--config", str(yml), "--splits", "test", "--prob-smooth", "--tag", "_p"]) == 0
@@ -55,3 +63,19 @@ def test_evaluate_with_stats_model(tmp_path):
     assert "precision" in head and "recall" in head
     assert "dw_probmean" in (out2 / "metrics.json").read_text() and "kappa" in (out2 / "metrics.json").read_text()
     assert "model+probmean3" in (out2 / "change.csv").read_text() or True   # change rows need reference maps, absent in this fixture
+    # the sliding-window size reaches inference, and a bad overlap stops the run
+    import lulc.infer
+    seen, real = [], lulc.infer.predict_region
+    def spy(*a, **k):
+        seen.append((k["patch"], k["overlap"]))
+        return real(*a, **k)
+    lulc.infer.predict_region = spy
+    try:
+        assert evaluate.main(["--data", str(tmp_path / "raw"), "--runs", str(tmp_path / "runs"), "--variant", "VX", "--config", str(yml),
+                              "--splits", "test", "--patch", "32", "--overlap", "8", "--tag", "_p32"]) == 0
+    finally:
+        lulc.infer.predict_region = real
+    assert seen and set(seen) == {(32, 8)}
+    with pytest.raises(SystemExit):
+        evaluate.main(["--data", str(tmp_path / "raw"), "--runs", str(tmp_path / "runs"), "--variant", "VX", "--config", str(yml),
+                       "--patch", "32", "--overlap", "32"])

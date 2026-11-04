@@ -50,7 +50,11 @@ DEMOS = {                              # places that show strong seasonal change
     "Gezira, Sudan (irrigated crops)": (14.40, 33.30, 2021, 1),
     "Poyang Lake, China (seasonal lake)": (29.10, 116.25, 2021, 1),
     "Punjab, India (double-cropped fields)": (30.90, 75.80, 2021, 1),
+    "Control: Munich, Germany (built-up city, should NOT change)": (48.14, 11.58, 2021, 1),   # check on satellite view before recording
 }
+CONTROL_NOTE = ("Control run: this is a large built-up area where the land cover should stay the same all year. "
+                "Whatever change the maps show here is false change (speckle, seasons, model error), so it is the noise level "
+                "to compare every other place against.")
 
 
 def _slug(s):
@@ -60,7 +64,7 @@ def _slug(s):
 def save_run(res):
     try:
         SAVED.mkdir(exist_ok=True)
-        with gzip.open(SAVED / f"{_slug(res['place'])}.pkl.gz", "wb") as f:
+        with gzip.open(SAVED / f"{_slug(res['place'] + ' ' + res['labels'][0])}.pkl.gz", "wb") as f:   # the same place in another period gets its own file
             pickle.dump(res, f)
     except Exception:
         pass
@@ -202,6 +206,8 @@ source = sb.radio("Data source", ["Earth Engine", "Saved run (offline)", "Local 
 if source == "Earth Engine":
     with sb.expander("Quick demo locations (seasonal change)"):
         dname = st.selectbox("Pick a place", list(DEMOS), key="demo_sel")
+        if dname.startswith("Control"):
+            st.caption(CONTROL_NOTE)
         if st.button("Load this demo"):
             st.session_state["demo_pending"] = DEMOS[dname]
             st.rerun()
@@ -248,7 +254,7 @@ run = sb.button("Run", type="primary", disabled=models is None or source == "Sav
 
 # ------------------------------------------------------------------ run
 st.markdown("<style>[data-testid='stImage'] img{image-rendering:pixelated;image-rendering:crisp-edges}</style>", unsafe_allow_html=True)   # no browser smoothing on class maps
-st.title("Sentinel-1 land cover: 12 monthly maps")
+st.title("Sentinel-1 land cover: monthly maps")
 st.caption("Sentinel-1 radar only. Six classes: " + ", ".join(CLASS_NAMES) + ".")
 
 if run:
@@ -264,7 +270,7 @@ if run:
 
             ee.Initialize(project=project)
             region = proto.make_region(lat, lon, size_km)
-            ym = proto.month_sequence(year, month)
+            ym = proto.finished_months(proto.month_sequence(year, month))    # the current year runs up to the last finished month
             for w in proto.check_period(ym):
                 st.warning(w)
             proto.fetch_months(ee, region, ym, CACHE, lambda f, t: bar.progress(f * 0.5, t))
@@ -313,7 +319,7 @@ if run:
     except Exception as e:
         bar.empty()
         st.error(f"Run failed: {e}")
-        if source == "Earth Engine":
+        if source == "Earth Engine" and not isinstance(e, ValueError):     # a ValueError is a bad input (period, place), not a login problem
             st.info("Earth Engine needs a one-time login: run `earthengine authenticate` in a terminal. "
                     "The project must be registered for Earth Engine.")
         st.stop()
@@ -340,6 +346,11 @@ m4.markdown(metric_card("Pixels used for change", f"{stats.valid_fraction.iloc[0
 missing = [proto.month_labels([res['ym'][i]])[0] for i in range(len(months)) if not store.s1[months[i], 0].any()]
 if missing:
     st.warning(f"No Sentinel-1 data for: {', '.join(missing)}.")
+if len(labels) < 12:
+    fy, fm = proto.latest_full_start()
+    st.info(f"This run covers {len(labels)} months, not 12 ({labels[0]} to {labels[-1]}): later months have not finished or have no data. "
+            "Class shares and the yearly radar statistics the model reads use only these months, so this is not a full annual cycle. "
+            f"For the latest full 12 months, start from {proto.MONTH_NAMES[fm - 1]} {fy}.")
 
 ood = res.get("ood")
 if ood and ood["level"] == "low":
@@ -405,9 +416,12 @@ with tab_map:
     elif HAVE_MAP and bounds is not None:
         st.caption("Click a pixel on the map to see its class in every month.")
     with st.expander("All months"):
-        fig, axes = plt.subplots(3, 4, figsize=(16, 12))
+        n_rows = max(1, -(-len(preds) // 4))
+        fig, axes = plt.subplots(n_rows, 4, figsize=(16, 4 * n_rows), squeeze=False)
+        for ax in axes.ravel():
+            ax.axis("off")                 # a run with fewer than 12 months leaves some panels empty
         for ax, p, lab in zip(axes.ravel(), preds, labels):
-            ax.imshow(show(p), cmap=CMAP, vmin=0, vmax=6, interpolation="nearest"); ax.set_title(lab); ax.axis("off")
+            ax.imshow(show(p), cmap=CMAP, vmin=0, vmax=6, interpolation="nearest"); ax.set_title(lab)
         fig.legend(handles=LEGEND, loc="lower center", ncol=7); plt.tight_layout(rect=(0, 0.04, 1, 1))
         st.pyplot(fig)
         buf = io.BytesIO(); fig.savefig(buf, dpi=110, bbox_inches="tight")
@@ -538,8 +552,8 @@ with tab_change:
 
 with tab_years:
     st.subheader("Same place, several years")
-    st.write("Each year is the 12 months from the chosen start month, smoothed, then reduced to one map per year "
-             "(most frequent class per pixel). Every year costs 12 Earth Engine downloads plus inference.")
+    st.write("Each year is the 12 months from the chosen start month (or the months finished so far), smoothed, then reduced to one map per year "
+             "(most frequent class per pixel). Every year costs up to 12 Earth Engine downloads plus inference.")
     if source != "Earth Engine":
         st.info("This tab needs the Earth Engine data source.")
     else:
@@ -555,8 +569,11 @@ with tab_years:
                 reg = proto.make_region(lat, lon, size_km)
                 per_year, scene_med, notes = {}, {}, []
                 for n, y in enumerate(sorted(picked)):
-                    ym_y = proto.month_sequence(y, month)
+                    ym_y = proto.finished_months(proto.month_sequence(y, month))
                     notes += [f"{y}: {w}" for w in proto.check_period(ym_y)[:2] if "stopped" in w or "Before" in w]
+                    if len(ym_y) < 12:
+                        notes.append(f"{y}: only {len(ym_y)} finished months, so this year's map misses part of the seasonal cycle. "
+                                     "Differences from full years can come from that alone.")
                     proto.fetch_months(ee, reg, ym_y, CACHE, lambda f, t, n=n, y=y: pb.progress((n + f * 0.5) / len(picked), f"{y}: {t}"))
                     st_y = proto.load_store_ym(CACHE, reg.key, ym_y)
                     p_y, _, mem_y, mo_y = proto.run_models(models, st_y, norm, card["window_months"], torch.device(device),
@@ -576,7 +593,7 @@ with tab_years:
         yr = st.session_state.get("years_res")
         if yr:
             summ, ys = yr["summ"], sorted(yr["summ"]["maps"])
-            st.caption(f"{yr['place']}, 12 months from {proto.MONTH_NAMES[yr['month'] - 1]} of each year.")
+            st.caption(f"{yr['place']}, up to 12 months from {proto.MONTH_NAMES[yr['month'] - 1]} of each year.")
             for n in yr["notes"]:
                 st.warning(n)
             low_y = [y for y in ys if np.isfinite(yr["scenes"][y]) and yr["scenes"][y] < 0.6 * np.nanmax(list(yr["scenes"].values()))]

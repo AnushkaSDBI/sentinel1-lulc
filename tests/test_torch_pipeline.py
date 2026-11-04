@@ -32,7 +32,7 @@ def test_end_to_end_learns_trivial_task(tmp_path):
                    encoder="resnet18", lr=2e-3, window=3), tr, va, tmp_path / "run", device=torch.device("cpu"), log=lambda *_: None)
     assert res["best_val_miou"] > 0.8
     model, card = load_model(tmp_path / "run", torch.device("cpu"))
-    preds, conf, members, months = predict_region([model], va["v"], res["norm"], 3, torch.device("cpu"), patch=64, overlap=16)
+    preds, conf, members, months = predict_region([model], va["v"], res["norm"], 3, torch.device("cpu"), patch=32, overlap=8)   # the size it trained at
     assert preds.shape == (4, 96, 96) and members.shape == (1, 4, 96, 96) and months == [0, 1, 2, 3]
     assert (preds[0][:, :40] == 0).mean() > 0.9                     # trees side
     assert false_change(preds, np.ones((96, 96), bool))["flip_rate_pct"] < 5
