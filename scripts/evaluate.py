@@ -39,6 +39,8 @@ def main(argv=None) -> int:
     ap.add_argument("--esri-scheme", choices=["original", "remapped"], help="default: detected from all selected cities pooled")
     ap.add_argument("--patch", type=int, default=512, help="sliding-window size in pixels for inference (models are trained at 256)")
     ap.add_argument("--overlap", type=int, default=64, help="sliding-window overlap in pixels")
+    ap.add_argument("--skip-missing", action="store_true",
+                    help="skip regions that have no month files at all for --year (e.g. a region exported for 2025 and 2026 only) and say which")
     ap.add_argument("--min-class-share", type=float, default=0.01,
                     help="per-region 'major class' mIoU counts only classes with at least this share of the region's reference pixels")
     args = ap.parse_args(argv)
@@ -94,8 +96,12 @@ def main(argv=None) -> int:
     by_month = {}                       # calendar month -> pooled confusion matrix vs Dynamic World
     bnd = {"raw": np.zeros(4), "majority": np.zeros(4), "label_vs_esri": np.zeros(4)}   # pooled boundary counts vs Dynamic World
     bnd_rows = []
+    skipped = []
     for r in regions:
         if r.split not in args.splits or not (Path(args.data) / r.key).exists():
+            continue
+        if args.skip_missing and not list((Path(args.data) / r.key).glob(f"{year}-*.npz")):
+            skipped.append(r.key)
             continue
         group_of[r.key] = "cities" if r.half_size_km > 6 else "rural"
         store = load_store(args.data, r.key, r.split, year, 0.0, ((card.get("config") or {}).get("coherence") or use_coh) if use_coh else False, stats=use_stats)
@@ -216,6 +222,8 @@ def main(argv=None) -> int:
         print(f"{k:12s} mIoU {v['miou']:.3f} [{v['miou_lo']:.3f}, {v['miou_hi']:.3f}]  OA {v['oa']:.3f}  ({v['n_cities']} cities)")
     if change_rows:
         print(pd.DataFrame(change_rows).groupby("maps")[["flip_rate_pct", "monthly_churn_pp", "net_total_change_pp"]].mean().round(2))
+    if skipped:
+        print(f"\nSkipped {len(skipped)} region(s) with no {year} month files: {', '.join(skipped)}. Scored {len(group_of)} regions.")
     return 0
 
 
