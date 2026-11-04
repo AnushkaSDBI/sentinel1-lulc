@@ -1,7 +1,7 @@
-# Prototype: 12 monthly land-cover maps from Sentinel-1
+# Prototype: monthly land-cover maps from Sentinel-1
 
-Enter a latitude, longitude and start month. The app downloads 12 monthly Sentinel-1 composites from Earth Engine,
-runs the trained U-Net (seed ensemble), and shows 12 maps, the share of each class per month, the month-to-month and
+Enter a latitude, longitude and start month. The app downloads 12 monthly Sentinel-1 composites from Earth Engine (fewer in the current year: it stops at the last finished month, and needs at least 4),
+runs the trained U-Net (seed ensemble), and shows one map per month, the share of each class per month, the month-to-month and
 total change in percentage points (with a noise floor and model-spread bands), and a check against WorldCover and Esri.
 
 ## Setup
@@ -41,7 +41,7 @@ Offline test without Earth Engine: choose "Local export" and give the export fol
 - Extra packages for the map and charts: `folium`, `streamlit-folium`, `plotly` (in `requirements.txt`). Basemap tiles need internet.
 
 ## How the change is computed
-Class shares use only pixels valid in all 12 months. Change = difference of shares in percentage points, month to month and first to last.
+Class shares use only pixels valid in all months of the run. Change = difference of shares in percentage points, month to month and first to last.
 Optional smoothing replaces each month's class by the majority over three consecutive months.
 The noise floor (total class churn per month on land that did not change) comes from our false-change test on 9 test regions and is
 set in `src/lulc/proto.py` (`NOISE_FLOOR`). Update it if you retrain.

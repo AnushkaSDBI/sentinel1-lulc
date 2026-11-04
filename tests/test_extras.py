@@ -233,6 +233,17 @@ def test_check_period_and_years():
         proto.check_period(proto.month_sequence(2014, 6), today)
     with pytest.raises(ValueError):
         proto.check_period(proto.month_sequence(2026, 1), today)       # runs into Dec 2026
+    # the current year runs up to the last finished month, and a full past period is untouched
+    now = dt.date(2026, 11, 4)
+    done = proto.finished_months(proto.month_sequence(2026, 1), now)
+    assert done[0] == (2026, 1) and done[-1] == (2026, 10) and len(done) == 10
+    assert proto.check_period(done, now)                               # passes the period check (with its usual warnings)
+    assert proto.finished_months(proto.month_sequence(2021, 1), now) == proto.month_sequence(2021, 1)
+    assert proto.latest_full_start(now) == (2025, 11)
+    assert len(proto.finished_months(proto.month_sequence(*proto.latest_full_start(now)), now)) == 12
+    assert len(proto.finished_months(proto.month_sequence(2026, 7), now)) == 4     # the smallest period allowed
+    with pytest.raises(ValueError, match="Nov 2025"):
+        proto.finished_months(proto.month_sequence(2026, 8), now)      # only Aug, Sep, Oct have finished
     a = np.zeros((2, 4, 4), np.uint8); a[:, :2] = 3
     b = a.copy(); b[:, :1] = 0
     s = proto.yearly_summary({2021: a, 2022: b})

@@ -54,3 +54,21 @@ def f1_from_counts(c) -> float:
     p = c[0] / c[1] if c[1] else 0.0
     r = c[2] / c[3] if c[3] else 0.0
     return 2 * p * r / (p + r) if p + r else 0.0
+
+
+def passes_border_rule(base: dict, other: dict, min_bf1: float = 0.02, max_miou_drop: float = 0.005,
+                       max_class_drop: float = 0.05) -> tuple[bool, list[str]]:
+    """Decision rule for any border-sharpening step (CRF, graph head). Set before the results.
+
+    base / other: {'miou': float, 'bf1': float, 'iou': per-class IoU array}. Passes if boundary F1 rises by at least
+    `min_bf1`, mIoU does not fall by more than `max_miou_drop`, and no class IoU falls by more than `max_class_drop`.
+    Returns (passes, list of reasons for failing)."""
+    why = []
+    if other["bf1"] - base["bf1"] < min_bf1:
+        why.append(f"boundary F1 {other['bf1'] - base['bf1']:+.3f} (needs +{min_bf1})")
+    if other["miou"] - base["miou"] < -max_miou_drop:
+        why.append(f"mIoU {other['miou'] - base['miou']:+.3f} (limit -{max_miou_drop})")
+    d = np.asarray(other["iou"], float) - np.asarray(base["iou"], float)
+    if np.isfinite(d).any() and np.nanmin(d) < -max_class_drop:
+        why.append(f"a class IoU fell by {-np.nanmin(d):.3f} (limit {max_class_drop})")
+    return (not why), why

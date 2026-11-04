@@ -32,6 +32,19 @@ def test_absent_class_is_nan_not_zero():
     assert np.isnan(cm.iou()[2]) and cm.miou() == pytest.approx(1.0)
 
 
+def test_miou_major_ignores_rare_reference_classes():
+    cm = ConfusionMatrix(3)
+    ref = np.array([0] * 98 + [1] * 2)      # class 1 is 2% of the reference, class 2 is absent
+    pred = np.array([0] * 90 + [1] * 8 + [0] * 2)   # class 1 is never predicted where it really is
+    cm.update(pred, ref)
+    assert cm.miou() == pytest.approx(np.mean([90 / 100, 0.0]))
+    assert cm.major_classes(0.05).tolist() == [True, False, False]
+    assert cm.miou_major(0.05) == pytest.approx(90 / 100)
+    assert cm.miou_major(0.02) == pytest.approx(cm.miou())      # the threshold is inclusive
+    assert cm.miou_major(0.0) == pytest.approx(cm.miou())       # no threshold equals mIoU; absent classes stay out
+    assert np.isnan(ConfusionMatrix(3).miou_major())
+
+
 def test_bootstrap_interval_contains_pooled_and_widens_with_few_cities():
     rng = np.random.default_rng(0)
     cms = {}

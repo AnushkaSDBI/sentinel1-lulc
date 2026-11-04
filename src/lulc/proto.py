@@ -55,6 +55,29 @@ def make_region(lat: float, lon: float, size_km: float) -> Region:
 
 
 FIRST_YEAR = 2015                      # first full year of Sentinel-1 IW archive in Earth Engine (S1A only until 2016)
+MIN_PERIOD_MONTHS = 4                  # the yearly statistics the model reads are undefined below this (lulc.yearly.MIN_MONTHS)
+
+
+def latest_full_start(today=None) -> tuple[int, int]:
+    """(year, month) of the latest start whose 12 months have all finished."""
+    import datetime as dt
+
+    today = today or dt.date.today()
+    i = today.year * 12 + today.month - 1 - 12
+    return i // 12, i % 12 + 1
+
+
+def finished_months(ym, today=None) -> list[tuple[int, int]]:
+    """The months of ym that have ended. Raises if too few remain for the model's yearly statistics."""
+    import datetime as dt
+
+    today = today or dt.date.today()
+    done = [p for p in ym if tuple(p) < (today.year, today.month)]
+    if len(done) < MIN_PERIOD_MONTHS:
+        y, m = latest_full_start(today)
+        raise ValueError(f"Only {len(done)} finished month(s) from {MONTH_NAMES[ym[0][1] - 1]} {ym[0][0]}; the model needs at least "
+                         f"{MIN_PERIOD_MONTHS}. Choose an earlier start, such as {MONTH_NAMES[m - 1]} {y} for the latest full 12 months.")
+    return done
 
 
 def check_period(ym, today=None) -> list[str]:
