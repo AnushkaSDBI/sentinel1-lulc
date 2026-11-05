@@ -33,3 +33,6 @@ variants:
   V16_window3_boundary:  {weights: auto, window: 3, yearly_stats: true, region_balance: equal, boundary_weight: 3.0}
   # Same as V12 plus a full-resolution path to the output layer (train.FullResUnet). Judge with scripts/sharpen_eval.py --compare-variant.
   V17_window3_fullres:   {weights: auto, window: 3, yearly_stats: true, region_balance: equal, full_res: true}
+  # 5-month window (plus or minus 2 months). A comparable model gained about 1 point of validation mIoU and cut class flips by a quarter going from
+  # plus or minus 1 to plus or minus 2. Not run for us yet: judge on validation against V12 under the same rule before shipping.
+  V18_window5:           {weights: auto, window: 5, yearly_stats: true, region_balance: equal}
