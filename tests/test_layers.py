@@ -156,3 +156,25 @@ def test_kpi_summary_and_sankey():
     s = layers.sankey_data(preds[0], preds[1])
     assert sum(s["value"]) == pytest.approx(100) and len(s["labels"]) == 12 and len(s["source"]) == len(s["value"])
     assert layers.agreement_pct(preds, None) is None
+
+
+def test_persistent_change_and_verdict():
+    a = np.zeros((40, 40), np.uint8)
+    b = a.copy(); b[5:15, 5:15] = 2                    # one compact 100 px patch
+    noisy = a.copy(); noisy[::7, ::7] = 3               # scattered single pixels
+    preds = np.stack([a, a, a, a, a, b, b, b])
+    v = layers.change_verdict(preds, min_px=30)
+    assert v["level"] == "likely" and v["candidate_pct"] == pytest.approx(100 * 100 / 1600)
+    assert (v["candidate"][5:15, 5:15] == 2).all() and (v["candidate"][0] == NO).all()
+    flick = np.stack([a, noisy, a, noisy, a, noisy, a, noisy])
+    assert layers.change_verdict(flick, min_px=30)["level"] == "none"
+    assert not layers.compact_patches(noisy != 0, 30).any()
+    assert layers.persistent_change(np.stack([a, a])).max() == NO
+
+
+def test_player_html_contains_every_frame_and_controls():
+    maps = [np.full((8, 8), k % 6, np.uint8) for k in range(4)]
+    seq = layers.build_sequence(maps, ["A", "B", "C", "D"], CLASS_COLORS)
+    assert len(seq["frames"]["Land cover"]) == 4 and "100.0% of the pixels changed" in seq["caption"][1]
+    html = layers.player_html({"Month by month": seq, "Year on year": seq}, CLASS_COLORS, ["a"] * 6)
+    assert "id=\"play\"" in html and "id=\"spd\"" in html and html.count("data:image/png;base64,") >= 16 and "__DATA__" not in html

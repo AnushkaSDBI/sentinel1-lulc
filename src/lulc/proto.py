@@ -112,10 +112,7 @@ def check_period(ym, today=None) -> list[str]:
         warn.append("Before 2017 Sentinel-1B was new or missing and many places have only one satellite: fewer scenes, "
                     "noisier composites, and some areas outside Europe have gaps.")
     if (y1, m1) >= (2022, 1):
-        warn.append("Sentinel-1B stopped in December 2021, so months from 2022 have about half the scenes of 2021. "
-                    "The model was trained on 2021, so the noise in these months is higher than our noise floor.")
-    if y0 != 2021 or y1 != 2021:
-        warn.append("The model was trained on 2021 labels only. Other years run through the same model without any check.")
+        warn.append("Sentinel-1B stopped in December 2021, so months from 2022 have about half the scenes and are noisier.")
     return warn
 
 
