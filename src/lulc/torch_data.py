@@ -13,7 +13,6 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from .classes import IGNORE_INDEX
 from .data import RegionStore, coherence_patch, window_months
 from .quant import DB_MIN, DB_STEP
 from .yearly import STAT_NAMES

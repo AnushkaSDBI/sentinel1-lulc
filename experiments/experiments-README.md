@@ -34,4 +34,4 @@ python scripts/evaluate.py --data $OUT --runs $RUNS --variant V12_window3_balanc
 python scripts/package_model.py --runs $RUNS --variant V12_window3_balanced_stats --out weights
 ```
 
-See `docs/research-notes.md` for what each result means and `claude/results-log.md` (in the project) for the full numbers.
+See `docs/notes/research-notes.md` for what each result means

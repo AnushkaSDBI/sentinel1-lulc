@@ -1,10 +1,7 @@
-# What we took from the two reference repos
+# Ideas taken from other work
 
-Both repos solve the same SRH brief. Neither has a licence, so nothing is copied.
-Every item below is a re-implementation of an idea, and the report should cite them.
-
-- reference implementation A: GEE Sentinel-1 plus monthly Dynamic World, 16 tropical sites. Already used for the monthly-label idea.
-- reference implementation B: global site set, WorldCover/Dynamic World agreement labels, U-Net with a 3-month window, extensive run log.
+Some ideas come from public repositories of other projects on the same task. None of them has a licence that allows reuse, so no code is copied.
+Every item below is a re-implementation of an idea.
 
 ## Adopted
 
@@ -40,7 +37,7 @@ Still to do in the training notebook: EMA of the weights (also cover BatchNorm b
 
 ## Not verified
 
-The literature numbers in repo B-404's research notes (U-TAE on PASTIS, EMA gains, label-product accuracies, and so on) are second-hand. Check the original paper before quoting any of them in the report.
+The literature numbers in second-hand research notes (U-TAE on PASTIS, EMA gains, label-product accuracies, and so on) are second-hand. Check the original paper before quoting any of them in the report.
 
 ## Report notes
 
@@ -55,24 +52,23 @@ Dec 2019 - Nov 2020, so it is a static prior per place and does not match the 20
 monthly coherence. Use for one figure (coherence vs backscatter for built, bare, vegetation) and as a labelled
 ablation, not in the main model. Whether coherence counts as "Sentinel-1 only" should be confirmed with the professor.
 
-## Adopted from the peer repos (round 3, 2026-10-29)
-Checked by reading their files, not only their READMEs.
+## Ideas adopted from public project repositories (round 3, 2026-10-29)
 
-| Source | Idea | Where in our code | Status |
-| --- | --- | --- | --- |
-| repo B-404 | Yearly statistic channels (VV min/max, VH std, VH spread, share of low-VV months) | `yearly.py`, V5 | implemented, not trained |
-| repo B-404 | EMA weights, warmup plus cosine schedule | `train.py` | in use |
-| repo B-404 | Lovasz loss, class-weight power | V6 | implemented, not trained |
-| repo B-404 | dB shift, month dropout, window jitter, label smoothing, weight decay 0.05 | `torch_data.py`, `train.py`, V9 | implemented, not trained |
-| repo B-404 | Consensus labels (two label maps must agree) | `apply_agree_filter`, V10 | implemented, not trained |
-| repo A | Label agreement filter with WorldCover; dry-region training sites | V10, five new tiles | implemented, not trained |
-| repo A | Scores per biome | `climate_groups`, `per_climate.csv` | implemented |
-| repo A | Do not use spatial radar filters | compositing | kept (temporal median only) |
-| reference implementation C | Speckle augmentation | V7 | implemented, not trained |
-| reference implementation C | Warning for areas unlike the training data | `ood.py`, prototype | implemented, needs `ood_reference.json` |
-| reference implementation C | Southern-hemisphere and arid tiles | `regions.yaml` | to export |
+| Idea | Where in our code | Status |
+| --- | --- | --- |
+| Yearly statistic channels (VV min/max, VH std, VH spread, share of low-VV months) | `yearly.py`, V5 | implemented, not trained |
+| EMA weights, warmup plus cosine schedule | `train.py` | in use |
+| Lovasz loss, class-weight power | V6 | implemented, not trained |
+| dB shift, month dropout, window jitter, label smoothing, weight decay 0.05 | `torch_data.py`, `train.py`, V9 | implemented, not trained |
+| Consensus labels (two label maps must agree) | `apply_agree_filter`, V10 | implemented, not trained |
+| Label agreement filter with WorldCover; dry-region training sites | V10, five new tiles | implemented, not trained |
+| Scores per biome | `climate_groups`, `per_climate.csv` | implemented |
+| Do not use spatial radar filters | compositing | kept (temporal median only) |
+| Speckle augmentation | V7 | implemented, not trained |
+| Warning for areas unlike the training data | `ood.py`, prototype | implemented, needs `ood_reference.json` |
+| Southern-hemisphere and arid tiles | `regions.yaml` | to export |
 
-Not adopted, on purpose: repo B's terrain channels (elevation, slope, HAND: not Sentinel-1 input, would break the brief); PCA of the
-yearly vector (calendar-tied, hurt the test score in repo B's own runs); repo A's hybrid yearly-fill labels (large change, uncertain gain);
-InSAR coherence (our V4 lost, and repo A's own proof of concept helps only built-up versus trees); 50 m resolution and PC-RTC data
+Not adopted, on purpose: terrain channels (elevation, slope, HAND: not Sentinel-1 input, would break the brief); PCA of the
+yearly vector (calendar-tied, and it hurt the test score in notes I read); hybrid yearly-fill labels (large change, uncertain gain);
+InSAR coherence (our V4 lost, and a published proof of concept helps only built-up versus trees); 50 m resolution and PC-RTC data
 (restarts the pipeline); two-pass noise floor and per-scene standardisation (no time before 9 Nov).

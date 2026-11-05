@@ -1,7 +1,6 @@
 import numpy as np
 import pytest
 
-from lulc.classes import IGNORE_INDEX
 from lulc.proto import (NOISE_FLOOR, analyse, compare_with_reference, load_local, load_reference, make_region,
                         month_labels, month_sequence)
 from lulc.ee_export import write_atomic
@@ -183,7 +182,7 @@ def test_fetch_months_makes_no_earth_engine_call_when_all_months_are_on_disk(tmp
 
 
 def test_geotiff_keeps_position_classes_and_no_data():
-    rasterio = pytest.importorskip("rasterio", exc_type=ImportError)
+    pytest.importorskip("rasterio", exc_type=ImportError)
     from rasterio.io import MemoryFile
     from lulc.classes import CLASS_COLORS
     from lulc.proto import geotiff_bytes, grid_for_region

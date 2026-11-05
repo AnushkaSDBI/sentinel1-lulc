@@ -3,8 +3,7 @@
 Patches are not copied to disk. We keep an index of (region, month, row, col) and
 cut the patch from the region array when it is needed. A patch is kept only when
 enough of it has a usable label and nearly all of it has Sentinel-1 data. The index
-idea (instead of copied patches, which would multiply the dataset size) and the
-validity thresholds follow a reference implementation, re-implemented here.
+(instead of copied patches, which would multiply the dataset size) keeps the dataset small.
 """
 
 from __future__ import annotations

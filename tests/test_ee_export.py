@@ -9,7 +9,7 @@ from lulc.ee_export import (
     BANDS, LABEL_NODATA, S1_NODATA, check_grid_probe, decode, dominant_direction,
     export_region_month, month_path, quality_report,
 )
-from lulc.grid import Tile, grid_for_region, split_tiles
+from lulc.grid import Tile, grid_for_region
 
 
 def _grid(size=40):
@@ -173,7 +173,7 @@ def test_reference_decode_and_export(tmp_path):
 
 
 def test_coarse_grid_is_aligned_and_covers():
-    from lulc.ee_export import COH_BANDS, coarse_grid, decode_coherence, export_coherence_region
+    from lulc.ee_export import coarse_grid
 
     g = _grid(2400)
     c = coarse_grid(g)

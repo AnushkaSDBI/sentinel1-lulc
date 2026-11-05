@@ -1,3 +1,5 @@
+# Weights, raw data and run folders stay out of git (too large).
+# The small result files behind the report are copied to results/ by scripts/collect_results.py and are committed.
 __pycache__/
 *.egg-info/
 .pytest_cache/
@@ -18,3 +20,5 @@ saved_runs/
 *.zip
 *.tgz
 Untitled.ipynb
+.env
+Untitled*.ipynb

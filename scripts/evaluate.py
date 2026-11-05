@@ -76,7 +76,7 @@ def main(argv=None) -> int:
     print(f"{len(models)} seeds, window {window}, coherence {use_coh}, yearly stats {use_stats}, year {year}, patch {args.patch}, overlap {args.overlap}")
     if year != cfg_year:
         print(f"NOTE: year {year} differs from the label year {cfg_year}. Only Dynamic World of {year} is used; the WorldCover/Esri rows "
-              "and the stable-land flicker test (2021 maps) are skipped.")
+              "and the stable-land flicker test (2021 maps) are skipped. Esri of the same year is scored when reference_esri_<year>.npz exists.")
 
     scheme = args.esri_scheme
     if scheme is None:
@@ -133,6 +133,13 @@ def main(argv=None) -> int:
                 cms["wc"].update(preds[t], wc); cms["esri"].update(preds[t], es)
                 cms["agree"].update(preds[t], np.where(stable, wc, IGNORE_INDEX))
                 cms["dw_wc_agree"].update(preds[t], np.where(lab[t] == wc, wc, IGNORE_INDEX))   # Dynamic World scored only where WorldCover agrees
+        elif year != cfg_year:     # another year: only Esri has an annual map (reference_esri_<year>.npz from export_reference.py --year)
+            eref = Path(args.data) / r.key / f"reference_esri_{year}.npz"
+            if eref.exists():
+                with np.load(eref) as z:
+                    es = remap_esri(z["esri"], "original")
+                for t in range(len(months)):
+                    cms["esri"].update(preds[t], es)
         for k in per:
             per[k][r.key] = cms[k]
         sig = area_signature(conf, members)
@@ -157,6 +164,9 @@ def main(argv=None) -> int:
               f"after {args.smooth}-month majority {f1_from_counts(bnd['majority']):.3f}. "
               f"Predicted border pixels / reference border pixels: {bnd['raw'][1] / max(bnd['raw'][3], 1):.2f} "
               "(above 1 = speckly, noisy borders; below 1 = soft, merged borders)")
+        (out / "boundary_pooled.json").write_text(json.dumps({
+            "bf1_raw": f1_from_counts(bnd["raw"]), "bf1_majority": f1_from_counts(bnd["majority"]),
+            "pred_over_ref_border_px": float(bnd["raw"][1] / max(bnd["raw"][3], 1))}, indent=2))
     pd.DataFrame(city_rows).to_csv(out / "per_city.csv", index=False)
     # in_dist = held-out cities of the normal test split; OOD cities (Milan, Valencia) and rural tiles listed separately
     ref = {"in_dist": [{k: v for k, v in o.items() if k != "split"} for o in ood_rows if o["split"] == "test" and o["group"] == "cities"],

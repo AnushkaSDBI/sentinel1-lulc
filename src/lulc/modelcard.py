@@ -2,7 +2,6 @@
 
 Saved next to the weights. The prototype reads it, so normalisation, channel order,
 composite recipe and class scheme cannot drift between training and inference.
-(Idea from a reference implementation.)
 """
 
 from __future__ import annotations

@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 import pytest
 
 from lulc.change_eval import false_change, member_spread, stable_mask, temporal_majority

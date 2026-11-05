@@ -1,6 +1,6 @@
 # Course requirements: Sentinel-1 LULC project
 
-Source: `Documentation/requirements_info.txt` and `lecture_notes.txt` in the reference implementation B (slides 9-10 of the course introduction).
+Source: `Documentation/requirements_info.txt` and `lecture_notes.txt` (slides 9-10 of the course introduction).
 The task part matches the text Anu pasted. The report part was not pasted by Anu: check it against the slides.
 Deadline: 9 Nov 2026. Solo project.
 

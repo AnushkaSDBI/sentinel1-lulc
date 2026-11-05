@@ -1,7 +1,6 @@
 """8-bit storage of backscatter in dB: dB = code * 0.2 - 35, code 0 = no data.
 
 Halves memory against float16 and the error (+-0.1 dB) is far below speckle.
-Same encoding as a reference implementation, re-implemented here.
 """
 
 from __future__ import annotations

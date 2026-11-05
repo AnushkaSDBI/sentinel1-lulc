@@ -8,7 +8,6 @@ class shares, month-to-month change in pp, total change, uncertainty, noise floo
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -172,25 +171,82 @@ def fetch_reference(ee, region: Region, workdir) -> dict | None:
     return load_reference(path)
 
 
+# Independent annual maps. WorldCover exists for 2020 (v100) and 2021 (v200) only, so it is used for 2021.
+# Esri / Impact Observatory 10 m annual LULC: 2017-2024 confirmed (AWS open-data registry, GEE community catalog); the catalog also
+# lists 2025 (added May 2026). 2025 is therefore tried and fails with a clear message if the asset has no image for it.
+# Nothing independent exists for 2026 yet. Dynamic World exists for every year but is the training label, so it is never independent.
+WORLDCOVER_YEAR = 2021
+ESRI_FIRST, ESRI_LAST = 2017, 2025
+
+
+def dominant_year(ym) -> int:
+    """Calendar year that holds most of the months (a later year wins a tie)."""
+    from collections import Counter
+    c = Counter(y for y, _ in ym)
+    return max(c, key=lambda y: (c[y], y))
+
+
+def reference_plan(ym) -> dict:
+    """Which independent map fits a run. kind: "worldcover+esri" (2021), "esri" (2017-2025), or None with the reason.
+
+    A year needs at least 6 of the 12 months, because the annual map describes that year. A run split 6/6 over two years
+    is checked against the later year."""
+    year = dominant_year(ym)
+    n = sum(y == year for y, _ in ym)
+    if n < 6:
+        return {"kind": None, "year": year, "reason": f"Fewer than 6 months fall in one calendar year ({n} in {year}), so no annual map fits."}
+    if year == WORLDCOVER_YEAR:
+        return {"kind": "worldcover+esri", "year": year, "reason": ""}
+    if ESRI_FIRST <= year <= ESRI_LAST:
+        return {"kind": "esri", "year": year, "reason": ""}
+    if year > ESRI_LAST:
+        return {"kind": None, "year": year,
+                "reason": f"No independent annual map exists for {year} yet: Esri stops at {ESRI_LAST} and WorldCover at {WORLDCOVER_YEAR}. "
+                          "Only Dynamic World is available, and it is the training label, so it is not an independent check."}
+    return {"kind": None, "year": year, "reason": f"Esri annual maps start in {ESRI_FIRST}; {year} has none."}
+
+
+def reference_file(workdir, key: str, year: int) -> Path:
+    """reference.npz holds WorldCover + Esri 2021; every other year is reference_esri_<year>.npz."""
+    name = "reference.npz" if year == WORLDCOVER_YEAR else f"reference_esri_{year}.npz"
+    return Path(workdir) / key / name
+
+
 def fetch_esri_reference(ee, region: Region, year: int, workdir) -> dict | None:
-    """Esri annual land cover for `year` on the region grid, as the independent check for a non-2021 year (2017-2023)."""
+    """Esri annual land cover for `year` on the region grid, as the independent check for a non-2021 year."""
     from .ee_export import build_esri_image, export_esri_region, make_fetcher
-    path = Path(workdir) / region.key / f"reference_esri_{year}.npz"
+    if not ESRI_FIRST <= year <= ESRI_LAST:
+        raise ValueError(f"Esri annual land cover is available for {ESRI_FIRST}-{ESRI_LAST}, not {year}.")
+    path = reference_file(workdir, region.key, year)
     if not path.exists():
         grid = grid_for_region(region)
         export_esri_region(grid, make_fetcher(ee, build_esri_image(ee, year), grid), path, {"region": region.key, "year": year})
-    with np.load(path) as z:
-        es = remap_esri(z["esri"], "original")
-    return {"esri": es}
+    return load_reference(path)
 
 
 def load_reference(path) -> dict | None:
+    """reference.npz (WorldCover + Esri 2021) or reference_esri_<year>.npz (Esri only). None if the file is missing."""
     path = Path(path)
     if not path.exists():
         return None
     with np.load(path) as z:
-        wc, es = remap_worldcover(z["wc"]), remap_esri(z["esri"], "original")
+        es = remap_esri(z["esri"], "original")
+        if "wc" not in z.files:
+            if not (es != IGNORE_INDEX).any():          # the asset had no image for that year: all no-data
+                raise ValueError(f"{path.name} holds no Esri data (the asset has no map for this place and year).")
+            return {"esri": es}
+        wc = remap_worldcover(z["wc"])
     return {"wc": wc, "esri": es, "agree": np.where(wc == es, wc, IGNORE_INDEX).astype(np.uint8)}
+
+
+def dynamic_world_fallback(store, months) -> dict | None:
+    """Annual Dynamic World map of the run, for years with no independent map. NOT independent: it is the training label."""
+    if getattr(store, "label", None) is None:
+        return None
+    lab = np.asarray(store.label)[list(months)]
+    if not (lab != IGNORE_INDEX).any():
+        return None
+    return {"dw": annual_mode(lab)}
 
 
 def load_local(data_dir, region_key: str, year: int = 2021):
@@ -258,7 +314,6 @@ def attach_coherence(store: RegionStore, data_dir, region_key: str) -> bool:
 
 def load_ood_reference(weights_dir) -> dict | None:
     """ood_reference.json written by scripts/evaluate.py (copy it into the weights folder)."""
-    import json
     f = Path(weights_dir) / "ood_reference.json"
     return json.loads(f.read_text()) if f.exists() else None
 
