@@ -11,15 +11,49 @@ from .patches import window_starts
 from .torch_data import extra_patch, extra_spec, prepare
 
 
+BLEND_MODES = ("uniform", "gaussian")
+
+
+def blend_weights(patch: int, mode: str = "uniform") -> torch.Tensor:
+    """Per-pixel weight of one tile when overlapping tiles are averaged, shape (patch, patch).
+
+    "gaussian" trusts the tile centre over its edges, where the network sees less context (sigma = patch / 8).
+    The floor is per axis, so tiles keep their relative weight along the region's outer rows, where a floor on the
+    product would make all tiles equal and leave the seams there. It also keeps corners from dividing by almost nothing."""
+    if mode not in BLEND_MODES:
+        raise ValueError(f"blend must be one of {BLEND_MODES}, got {mode!r}")
+    if mode == "uniform":
+        return torch.ones(patch, patch)
+    d = torch.arange(patch, dtype=torch.float32) - (patch - 1) / 2
+    g = torch.exp(-d ** 2 / (2 * (patch / 8) ** 2)).clamp_min(1e-3)
+    return torch.outer(g, g)
+
+
+def softmax_tta(model, xin: torch.Tensor, tta: bool = False) -> torch.Tensor:
+    """Softmax for a batch (B,C,H,W). With tta, the mean over the 8 flips and 90-degree rotations of a square input,
+    each turned back first. Training augments with the same 8 (torch_data.PatchDataset), so none is new to the model."""
+    if not tta:
+        return torch.softmax(model(xin).float(), 1)
+    total = 0.0
+    for k in range(4):
+        for flip in (False, True):
+            t = torch.rot90(xin, k, (2, 3))
+            p = torch.softmax(model(t.flip(3) if flip else t).float(), 1)
+            total = total + torch.rot90(p.flip(3) if flip else p, -k, (2, 3))
+    return total / 8
+
+
 @torch.no_grad()
 def predict_month(models, store: RegionStore, month: int, norm: dict, window: int, device,
                   patch: int = 512, overlap: int = 64, use_coh: bool = False, amp: bool = True,
-                  use_stats: bool = False, return_probs: bool = False):
+                  use_stats: bool = False, return_probs: bool = False, tta: bool = False, blend: str = "uniform"):
     """Mean softmax over `models` for one month. Returns (pred uint8 (H,W), maxprob float16 (H,W),
-    member_preds list of uint8 (H,W)). No-data Sentinel-1 pixels (VV code 0) get IGNORE_INDEX."""
+    member_preds list of uint8 (H,W)). No-data Sentinel-1 pixels (VV code 0) get IGNORE_INDEX.
+    tta (8 times slower) and blend are the optional border refinements; the defaults leave the maps as they were."""
     h, w = store.size
     patch = min(patch, h, w)
     stride = max(patch - overlap, 1)
+    weight = blend_weights(patch, blend)
     idx = window_months(month, window, store.s1.shape[0])
     full = torch.from_numpy(store.s1[idx].reshape(window * 2, h, w))
     n_cls = None
@@ -38,13 +72,13 @@ def predict_month(models, store: RegionStore, month: int, norm: dict, window: in
                        if (use_coh or use_stats) else None)
                 xin = prepare(x, coh, norm, window, spec)
                 with torch.autocast(device_type=device.type, enabled=amp and device.type == "cuda"):
-                    p = torch.softmax(model(xin).float(), 1)[0].cpu()
+                    p = softmax_tta(model, xin, tta)[0].cpu()
                 if probs is None:
                     n_cls = p.shape[0]
                     probs = torch.zeros(n_cls, h, w)
-                probs[:, r:r + patch, c:c + patch] += p
+                probs[:, r:r + patch, c:c + patch] += p * weight
                 if model is models[0]:
-                    cnt[r:r + patch, c:c + patch] += 1
+                    cnt[r:r + patch, c:c + patch] += weight
         probs /= cnt
         members.append(probs.argmax(0).numpy().astype(np.uint8))
         acc = probs if acc is None else acc + probs

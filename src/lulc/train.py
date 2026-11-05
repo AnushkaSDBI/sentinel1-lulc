@@ -28,7 +28,7 @@ DEFAULTS = dict(label_source="dw", region_balance="none", encoder="resnet34", we
                 patch=256, ce_weight=1.0, dice_weight=0.5, lovasz_weight=0.0, ema=0.999,
                 val_patches=600, patience=5, workers=2, amp=True, seed=0, class_weight_power=0.5,
                 yearly_stats=False, speckle_p=0.0, speckle_looks=10.0,
-                label_smoothing=0.0, db_shift=0.0, month_dropout=0.0, jitter=0, agree_filter=False, boundary_weight=0.0)
+                label_smoothing=0.0, db_shift=0.0, month_dropout=0.0, jitter=0, agree_filter=False, boundary_weight=0.0, full_res=False)
 
 
 def boundary_band(y: torch.Tensor, ignore: int = IGNORE_INDEX, width: int = 1) -> torch.Tensor:
@@ -57,9 +57,30 @@ def seed_all(seed: int) -> None:
     random.seed(seed); np.random.seed(seed); torch.manual_seed(seed); torch.cuda.manual_seed_all(seed)
 
 
+class FullResUnet(nn.Module):
+    """U-Net plus a small branch from the input to the output layer.
+
+    smp.Unet drops the full-resolution encoder feature, so its last decoder block upsamples from half resolution with no
+    skip connection and the raw radar never reaches the output layer directly. Two 3x3 convolutions on the input,
+    concatenated before the segmentation head, add that path."""
+
+    def __init__(self, unet: nn.Module, in_channels: int, classes: int, decoder_channels: int = 16, branch_channels: int = 16):
+        super().__init__()
+        self.unet = unet
+        self.unet.segmentation_head = nn.Identity()      # unet(x) now returns the last decoder features
+        self.branch = nn.Sequential(
+            nn.Conv2d(in_channels, branch_channels, 3, padding=1, bias=False), nn.BatchNorm2d(branch_channels), nn.ReLU(inplace=True),
+            nn.Conv2d(branch_channels, branch_channels, 3, padding=1, bias=False), nn.BatchNorm2d(branch_channels), nn.ReLU(inplace=True))
+        self.segmentation_head = nn.Conv2d(decoder_channels + branch_channels, classes, 3, padding=1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.segmentation_head(torch.cat([self.unet(x), self.branch(x)], 1))
+
+
 def build_model(cfg: dict, n_extra_ch: int = 0) -> nn.Module:
-    return smp.Unet(encoder_name=cfg["encoder"], encoder_weights=cfg["weights"],
-                    in_channels=n_input_channels(cfg["window"], n_extra_ch), classes=N_CLASSES)
+    in_channels = n_input_channels(cfg["window"], n_extra_ch)
+    unet = smp.Unet(encoder_name=cfg["encoder"], encoder_weights=cfg["weights"], in_channels=in_channels, classes=N_CLASSES)
+    return FullResUnet(unet, in_channels, N_CLASSES) if cfg.get("full_res") else unet
 
 
 class EMA:

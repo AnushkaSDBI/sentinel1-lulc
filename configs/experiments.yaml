@@ -31,3 +31,5 @@ variants:
   V15_worldcover_labels: {weights: auto, window: 3, yearly_stats: true, region_balance: equal, label_source: worldcover}  # train on WorldCover; score against Esri (WC no longer independent)
   # Sharper borders (same as V12 plus extra loss weight on label-boundary pixels). Judge by boundary F1, not mIoU alone.
   V16_window3_boundary:  {weights: auto, window: 3, yearly_stats: true, region_balance: equal, boundary_weight: 3.0}
+  # Same as V12 plus a full-resolution path to the output layer (train.FullResUnet). Judge with scripts/sharpen_eval.py --compare-variant.
+  V17_window3_fullres:   {weights: auto, window: 3, yearly_stats: true, region_balance: equal, full_res: true}
