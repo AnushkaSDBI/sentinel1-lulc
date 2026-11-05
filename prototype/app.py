@@ -321,6 +321,9 @@ else:
 sb.header("3. Options")
 smooth = sb.checkbox("3-month majority smoothing", True,
                      help="Cut false class flips on stable land from 2.83% to 1.22% per month in our 2021 test. Turn off to see raw predictions.")
+tta = sb.checkbox("Test-time augmentation (8 flips and rotations, 8 times slower)", False,
+                  help="Averages the model over 8 flipped and rotated copies of every tile. It was measured for a comparable model "
+                       "to give a small gain; we have not validated it for ours, so it is off by default. Run scripts/sharpen_eval.py first.")
 run = sb.button("Run", type="primary", disabled=models is None or source == "Saved run (offline)")
 
 # ------------------------------------------------------------------ run
@@ -379,12 +382,12 @@ if run:
                 st.stop()
             st.caption("Coherence research model: using the coherence file already on disk for this area.")
         preds, conf, members, months = proto.run_models(
-            models, store, norm, card["window_months"], torch.device(device), use_stats=proto.uses_stats(card), use_coh=use_coh,
+            models, store, norm, card["window_months"], torch.device(device), use_stats=proto.uses_stats(card), use_coh=use_coh, tta=tta,
             progress=lambda f, t: bar.progress(0.5 + f * 0.5 if source == "Earth Engine" else f, t))
         labels = proto.month_labels([ym[i] for i in months])
         ood = ood_check(area_signature(conf, members), proto.load_ood_reference(weights))
         st.session_state["res"] = dict(ood=ood, store=store, ym=[ym[i] for i in months], months=months, labels=labels, preds=preds,
-                                       members=members, conf=conf.astype(np.float16), reference=reference, ref_plan=proto.reference_plan(ym), bounds=bounds, place=place, smooth=smooth, k=len(models), grid=grid,
+                                       members=members, conf=conf.astype(np.float16), reference=reference, ref_plan=proto.reference_plan(ym), bounds=bounds, place=place, smooth=smooth, tta=tta, k=len(models), grid=grid,
                                        absent=[ym[i] for i, ok in enumerate(store.present) if not ok])
         try:
             st.toast(f"Saved for offline replay: {save_run(st.session_state['res'])}")    # keep it for instant offline replay later
@@ -505,56 +508,86 @@ def layer_legend(layer, i):
             'border:1px solid #888;vertical-align:middle"></span> −25 dB (dark: water, smooth) to 0 dB (bright: buildings, rough). Month-specific, no model involved.')
 
 
-tab_map, tab_video, tab_cmp, tab_share, tab_change, tab_years, tab_check, tab_card, tab_info = st.tabs(
-    ["Maps", "Month-by-month video", "Compare side by side", "Class shares", "Change", "Change over years",
-     "Check against independent maps", "Model card", "Method and limits"])
+ref_oa_map = res["reference"]["esri"] if res.get("reference") else None
+kp = layers.kpi_summary(preds, stats.percent, stats.total_change, scenes, conf_all,
+                        proto.NOISE_FLOOR["flip_rate_smoothed_pct" if res["smooth"] else "flip_rate_raw_pct"], out["floor_net"], ref_oa_map)
+KPI_H = 170
+k = st.columns(5)
+k[0].metric("Months mapped", kp["months"]["value"], kp["months"]["note"], delta_color="off", delta_arrow="off", border=True, height=KPI_H,
+            chart_data=kp["months"]["series"], chart_type="bar", help="Months with Sentinel-1 data. Bars: scenes per month.")
+k[1].metric("Dominant class", kp["dominant"]["value"], kp["dominant"]["note"], delta_color="off", delta_arrow="off", border=True, height=KPI_H,
+            chart_data=kp["dominant"]["series"], help="Largest mean share over the months. Line: its share per month.")
+k[2].metric("Largest net change", kp["net"]["value"], kp["net"]["note"], delta_color="off", delta_arrow="off", border=True, height=KPI_H,
+            chart_data=kp["net"]["series"],
+            help=f"Class whose share changed most from {labels[first]} to {labels[last]}. "
+                 + ("This is above the noise level." if kp["net"]["beyond_noise"] else "This is within the noise level, so it is not evidence of change."))
+k[3].metric("Monthly pixel change", kp["flip"]["value"], kp["flip"]["note"], delta_color="off", delta_arrow="off", border=True, height=KPI_H,
+            chart_data=kp["flip"]["series"], chart_type="bar",
+            help="Mean share of pixels whose class differs from the previous month. On land that did not change the model already flips about "
+                 "the noise share, so only values well above it can be real change.")
+k[4].metric("Agreement with Esri" if ref_oa_map is not None else "Independent check", kp["agree"]["value"], kp["agree"]["note"],
+            delta_color="off", delta_arrow="off", border=True, height=KPI_H, chart_data=kp["agree"]["series"],
+            help=("Overall agreement of the most frequent class with the independent Esri map of the same year. Line: mean confidence per month."
+                  if ref_oa_map is not None else "No independent map exists for this period (see the Validation tab). Line: mean confidence per month."))
+conf_name = "softmax confidence" if not conf_is_vote else "seed agreement (no softmax confidence saved in this run)"
+st.caption(f"{res['place'] if not str(res['place'])[:1].isdigit() else ''} {fmt_period(labels)} · {len(preds[0])} × {len(preds[0][0])} pixels of 10 m"
+           + (" · 3-month majority filter on" if res["smooth"] else "") + (" · test-time augmentation on" if res.get("tta") else "")
+           + f" · confidence = {conf_name}")
+
+tab_map, tab_video, tab_share, tab_change, tab_check, tab_card = st.tabs(
+    ["Map viewer", "Monthly change", "Class statistics", "Change analysis", "Validation", "Model"])
+tab_cmp, tab_years, tab_info = tab_map, tab_change, tab_card
 
 with tab_map:
-    i = st.select_slider("Month", options=list(range(len(labels))), format_func=lambda k: labels[k], key="month")
     bounds = res.get("bounds")
-    if (preds[i] == 255).all():
-        st.warning(f"No Sentinel-1 data for {labels[i]}: this month has no map, and it is left out of the change figures.")
-    layer = st.selectbox("Layer", layers.LAYER_NAMES, key="layer",
-                         help="Land cover is the model output. The others are views of the same maps, or the radar itself.")
     disagree = out["disagree"]
-    grey = st.checkbox("Grey out pixels where the seeds disagree", False, disabled=disagree is None,
-                       help="Pixels where the ensemble members do not all give the same class. Display only: shares and change still use every pixel."
-                            if disagree is not None else "This needs more than one model in the ensemble.")
-    uncertain = disagree[i] if grey else None
-    if grey:
-        st.caption(f"{100 * uncertain.sum() / max((preds[i] != 255).sum(), 1):.1f}% of the pixels with radar in {labels[i]} are greyed out.")
-    left, right = st.columns(2)
-    if HAVE_MAP and bounds is not None:
-        c1, c2 = left.columns(2)
-        alpha = c1.slider("Class layer opacity", 0.0, 1.0, 0.85, 0.05)
-        satellite = c2.radio("Basemap", ["Satellite photo", "Street map"], horizontal=True) == "Satellite photo"
-        hl = left.checkbox("Highlight pixels that changed since the previous month", False, disabled=i == 0 or layer != "Land cover",
-                           help="Unchanged pixels are faded. Most highlighted pixels are noise, see the Change tab.")
-        m = base_map(bounds, satellite)
-        img, layer_name = layer_overlay(layer, i, hl, uncertain)
-        folium.raster_layers.ImageOverlay(image=img, bounds=bounds, opacity=alpha, name=layer_name, overlay=True).add_to(m)
-        folium.LayerControl(collapsed=False).add_to(m)
-        hit = st_folium(m, height=520, use_container_width=True, returned_objects=["last_clicked"], key="resmap")
-        if layer == "Land cover":
-            left.markdown(f"**Share of the area, {labels[i]}**" + legend_html(stats.percent.iloc[i], seeds=grey), unsafe_allow_html=True)
+    c_ctrl, c_map = st.columns([1, 3], gap="large")
+    with c_ctrl:
+        layer = st.radio("Layer", layers.LAYER_NAMES, key="layer",
+                         help="Land cover is the model output. The others are views of the same maps, or the radar itself.")
+        i = st.select_slider("Month", options=list(range(len(labels))), format_func=lambda k: labels[k], key="month",
+                             disabled=layer in ("12-month majority", "Change frequency (year)") or len(labels) == 1)
+        alpha = st.slider("Opacity", 0.0, 1.0, 0.8, 0.05)
+        satellite = st.radio("Basemap", ["Satellite photo", "Street map"], horizontal=True) == "Satellite photo"
+        grey = st.checkbox("Grey out pixels where the seeds disagree", False, disabled=disagree is None,
+                           help="Pixels where the ensemble members do not all give the same class. Display only: shares and change still use every pixel."
+                                if disagree is not None else "This needs more than one model in the ensemble.")
+        hl = st.checkbox("Highlight pixels that changed since the previous month", False, disabled=i == 0 or layer != "Land cover",
+                         help="Unchanged pixels are faded. Most highlighted pixels are noise, see the Change analysis tab.")
+        uncertain = disagree[i] if grey else None
+        if grey:
+            st.caption(f"{100 * uncertain.sum() / max((preds[i] != 255).sum(), 1):.1f}% of the pixels with radar in {labels[i]} are greyed out.")
+        if (preds[i] == 255).all():
+            st.warning(f"No Sentinel-1 data for {labels[i]}: this month has no map, and it is left out of the change figures.")
+        if HAVE_MAP and bounds is not None:
+            if layer == "Land cover":
+                st.markdown(f"**Share of the area, {labels[i]}**" + legend_html(stats.percent.iloc[i], seeds=grey), unsafe_allow_html=True)
+            else:
+                st.markdown(layer_legend(layer, i), unsafe_allow_html=True)
+    with c_map:
+        if HAVE_MAP and bounds is not None:
+            m = base_map(bounds, satellite)
+            img, layer_name = layer_overlay(layer, i, hl, uncertain)
+            folium.raster_layers.ImageOverlay(image=img, bounds=bounds, opacity=alpha, name=layer_name, overlay=True).add_to(m)
+            folium.LayerControl(collapsed=False).add_to(m)
+            hit = st_folium(m, height=560, use_container_width=True, returned_objects=["last_clicked"], key="resmap")
+            lc = (hit or {}).get("last_clicked")
+            px = proto.click_to_pixel(lc["lat"], lc["lng"], bounds, preds.shape) if lc else None
         else:
-            left.markdown(layer_legend(layer, i), unsafe_allow_html=True)
-        lc = (hit or {}).get("last_clicked")
-        px = proto.click_to_pixel(lc["lat"], lc["lng"], bounds, preds.shape) if lc else None
-    else:
-        px = None
-        fig, ax = plt.subplots(figsize=(7, 7))
-        ax.imshow(show(preds[i]), cmap=CMAP, vmin=0, vmax=6, interpolation="nearest"); ax.axis("off"); ax.set_title(labels[i])
-        fig.legend(handles=LEGEND, loc="lower center", ncol=4, fontsize=8); plt.tight_layout(rect=(0, 0.06, 1, 1))
-        left.pyplot(fig); plt.close(fig)
-        if bounds is None:
-            left.caption("No map position for this region, so no basemap. Earth Engine runs always have one.")
-        if layer != "Land cover":
-            left.caption("The extra layers need the interactive map (install folium) and a map position. Showing land cover instead.")
-    right.image(class_rgb(preds[i], uncertain), caption=f"Predicted land cover, {labels[i]}", clamp=True, use_container_width=True)
-    right.image(false_colour(store, months[i]), caption=f"Sentinel-1 radar, {labels[i]}: R = VV, G = VH, B = VV-VH", clamp=True, use_container_width=True)
+            px = None
+            fig, ax = plt.subplots(figsize=(7, 7))
+            ax.imshow(show(preds[i]), cmap=CMAP, vmin=0, vmax=6, interpolation="nearest"); ax.axis("off"); ax.set_title(labels[i])
+            fig.legend(handles=LEGEND, loc="lower center", ncol=4, fontsize=8); plt.tight_layout(rect=(0, 0.06, 1, 1))
+            st.pyplot(fig); plt.close(fig)
+            if bounds is None:
+                st.caption("No map position for this region, so no basemap. Earth Engine runs always have one.")
+            if layer != "Land cover":
+                st.caption("The extra layers need the interactive map (install folium) and a map position. Showing land cover instead.")
+    right = st.columns(3)
+    right[0].image(class_rgb(preds[i], uncertain), caption=f"Predicted land cover, {labels[i]}", clamp=True, use_container_width=True)
+    right[1].image(false_colour(store, months[i]), caption=f"Sentinel-1 radar, {labels[i]}: R = VV, G = VH, B = VV-VH", clamp=True, use_container_width=True)
     share = stats.percent.iloc[i]
-    right.bar_chart(share.rename("% of area"), height=220, color="#555555")
+    right[2].bar_chart(share.rename("% of area"), height=260, color="#555555")
     if px is not None:
         series = proto.pixel_series(preds, px[0], px[1], labels)
         color_of = dict(zip(CLASS_NAMES, CLASS_COLORS))
@@ -711,8 +744,17 @@ with tab_share:
     if out["spread"] is not None:
         st.caption("Bands show the spread (one standard deviation) between the ensemble members, a measure of model uncertainty.")
     st.download_button("Download shares (CSV)", stats.percent.round(4).to_csv(), "class_shares.csv", "text/csv")
+    import json as _json
+    st.download_button("Download run report (JSON)", _json.dumps({
+        "place": str(res["place"]), "period": [labels[0], labels[-1]], "months_with_radar": int(sum((p != 255).any() for p in preds)),
+        "models": res["k"], "smoothing": bool(res["smooth"]), "tta": bool(res.get("tta", False)),
+        "kpis": {n: {"value": v["value"], "note": v["note"]} for n, v in kp.items()},
+        "class_shares_percent": stats.percent.round(3).to_dict("index"), "total_change_pp": stats.total_change.round(3).to_dict(),
+        "noise_floor": proto.NOISE_FLOOR,
+        "caveat": "Labels are annual, so the monthly maps have no ground truth."}, indent=2), "run_report.json", "application/json")
 
-with tab_change:
+with tab_video:
+    st.divider()
     floor = out["floor"]
     st.subheader("Month-to-month change (percentage points)")
     steps = stats.delta.iloc[1:].round(2).copy()
@@ -728,6 +770,8 @@ with tab_change:
     else:
         st.info(f"No month-to-month change is above the noise floor ({floor} pp total churn per month). "
                 "Nothing here can be told apart from classification noise.")
+
+with tab_change:
     st.subheader(f"Total change {labels[first]} to {labels[last]} (percentage points)")
     st.dataframe(stats.total_change.round(2).to_frame("pp"))
     st.write(f"Net change across all classes: **{out['net']:.1f} pp**. "
@@ -746,6 +790,14 @@ with tab_change:
         ax.imshow(np.ma.masked_where(show(arr) == 0, show(arr)), cmap=CMAP, vmin=0, vmax=6, interpolation="nearest")
         ax.axis("off"); ax.set_title(title, fontsize=9)
         col.pyplot(fig); plt.close(fig)
+    if HAVE_MAP:
+        sk = layers.sankey_data(preds[first], preds[last], min_share=0.05)
+        if sk["value"]:
+            fig_sk = go.Figure(go.Sankey(node=dict(label=sk["labels"], color=[c for c in CLASS_COLORS] * 2, pad=14, thickness=16),
+                                         link=dict(source=sk["source"], target=sk["target"], value=sk["value"])))
+            fig_sk.update_layout(height=380, margin=dict(l=10, r=10, t=30, b=10), title=f"Where the area went, {labels[first]} to {labels[last]} (% of area)")
+            st.plotly_chart(fig_sk, width="stretch")
+            st.caption("Wide flows between different classes are change or noise. Most of them are noise unless they form compact patches on the map.")
     valid = (preds[first] != 255) & (preds[last] != 255)
     flip_floor = proto.NOISE_FLOOR["flip_rate_smoothed_pct" if res["smooth"] else "flip_rate_raw_pct"]
     st.caption(f"{100 * (ch != 255).sum() / max(valid.sum(), 1):.1f}% of the pixels have a different class in the last month. "

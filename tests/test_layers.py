@@ -136,3 +136,23 @@ def test_dynamic_world_fallback():
     assert proto.dynamic_world_fallback(S, [0, 1]) is None
     S.label = None
     assert proto.dynamic_world_fallback(S, [0]) is None
+
+
+def test_kpi_summary_and_sankey():
+    import pandas as pd
+    a = np.zeros((4, 4), np.uint8)
+    b = a.copy(); b[0, :] = 2
+    preds = np.stack([a, b, b])
+    pct = pd.DataFrame({"Tree cover": [100.0, 75.0, 75.0], "Grass/shrub": [0.0, 0.0, 0.0], "Cropland": [0.0, 25.0, 25.0]})
+    tc = pd.Series({"Tree cover": -25.0, "Grass/shrub": 0.0, "Cropland": 25.0})
+    conf = np.full((3, 4, 4), 0.9, np.float32)
+    ref = np.zeros((4, 4), np.uint8)
+    k = layers.kpi_summary(preds, pct, tc, [10, 10, 5], conf, 1.2, 2.35, ref)
+    assert k["months"]["value"] == "3/3" and "median 10" in k["months"]["note"]
+    assert k["dominant"]["value"] == "Tree cover" and k["net"]["beyond_noise"] is True
+    assert k["flip"]["value"] == "12.5%" and len(k["flip"]["series"]) == 2          # (25% + 0%) / 2 over the two steps
+    assert k["agree"]["value"] == "75.0%" and "90%" in k["agree"]["note"]
+    assert layers.kpi_summary(preds, pct, tc, [np.nan] * 3, conf, 1.2, 2.35)["agree"]["value"] == "–"
+    s = layers.sankey_data(preds[0], preds[1])
+    assert sum(s["value"]) == pytest.approx(100) and len(s["labels"]) == 12 and len(s["source"]) == len(s["value"])
+    assert layers.agreement_pct(preds, None) is None

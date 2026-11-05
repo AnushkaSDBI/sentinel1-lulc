@@ -251,3 +251,67 @@ def load_scores(eval_dir) -> dict:
             out[k] = {"miou": v["miou"], "miou_lo": v.get("miou_lo"), "miou_hi": v.get("miou_hi"), "oa": v.get("oa"),
                       "per_class_iou": v.get("per_class_iou") or {}}
     return out
+
+
+# ------------------------------------------------------------------ KPI row
+def monthly_flip_pct(preds, ignore: int = IGNORE_INDEX) -> np.ndarray:
+    """Share (%) of pixels whose class differs from the previous month, among pixels with radar in both. (T,) with NaN for month 0
+    and for months that have no valid pair."""
+    preds = np.asarray(preds)
+    out = np.full(len(preds), np.nan)
+    for k in range(1, len(preds)):
+        both = (preds[k] != ignore) & (preds[k - 1] != ignore)
+        if both.any():
+            out[k] = 100 * float(((preds[k] != preds[k - 1]) & both).sum()) / int(both.sum())
+    return out
+
+
+def agreement_pct(preds, ref, ignore: int = IGNORE_INDEX) -> float | None:
+    """Overall agreement (%) of the most frequent class over the months with a reference map, on pixels valid in both."""
+    if ref is None:
+        return None
+    annual = majority_map(preds, ignore)
+    ok = (annual != ignore) & (np.asarray(ref) != ignore)
+    return None if not ok.any() else 100 * float((annual[ok] == np.asarray(ref)[ok]).mean())
+
+
+def kpi_summary(preds, percent, total_change, scenes, conf, flip_noise_pct: float, net_noise_pp: float, ref=None) -> dict:
+    """Numbers for the five KPI cards. percent: DataFrame (months x classes, % of area), total_change: Series (pp, first to last month).
+
+    Each card has a value, a note and a small series for its sparkline, so the page can draw them without more logic."""
+    preds = np.asarray(preds)
+    has = [bool((p != IGNORE_INDEX).any()) for p in preds]
+    sc = np.asarray(scenes, float)
+    mean_share = percent.mean(axis=0, skipna=True)
+    dom = str(mean_share.idxmax())
+    big = str(total_change.abs().idxmax())
+    flips = monthly_flip_pct(preds)
+    conf = np.asarray(conf, np.float32)
+    mean_conf = np.array([np.nan if not has[t] else float(np.nanmean(conf[t])) for t in range(len(preds))])
+    return {
+        "months": {"value": f"{sum(has)}/{len(preds)}",
+                   "note": (f"median {np.nanmedian(sc):.0f} scenes per month" if np.isfinite(sc).any() else "scene counts not available"),
+                   "series": [0.0 if not np.isfinite(x) else float(x) for x in sc]},
+        "dominant": {"value": dom, "note": f"{mean_share[dom]:.1f}% of the area", "series": [float(x) for x in percent[dom].fillna(0)]},
+        "net": {"value": big, "note": f"{total_change[big]:+.2f} pp (noise about {net_noise_pp:g} pp in total)",
+                "series": [float(x) for x in percent[big].fillna(0)], "beyond_noise": bool(abs(total_change[big]) > net_noise_pp)},
+        "flip": {"value": "n/a" if not np.isfinite(flips).any() else f"{np.nanmean(flips):.1f}%",
+                 "note": f"model noise {flip_noise_pct:g}%", "series": [0.0 if not np.isfinite(x) else float(x) for x in flips[1:]]},
+        "agree": {"value": "–" if ref is None else f"{agreement_pct(preds, ref):.1f}%",
+                  "note": f"mean confidence {100 * np.nanmean(mean_conf):.0f}%",
+                  "series": [0.0 if not np.isfinite(x) else float(100 * x) for x in mean_conf]},
+    }
+
+
+def sankey_data(a, b, ignore: int = IGNORE_INDEX, min_share: float = 0.0) -> dict:
+    """First-to-last class flows for a Sankey diagram: labels, source, target, value (% of valid area). Flows below min_share % dropped."""
+    a, b = np.asarray(a), np.asarray(b)
+    ok = (a != ignore) & (b != ignore)
+    n = len(CLASS_NAMES)
+    cm = np.bincount(a[ok].astype(np.int64) * n + b[ok].astype(np.int64), minlength=n * n).reshape(n, n) / max(int(ok.sum()), 1) * 100
+    src, tgt, val = [], [], []
+    for i in range(n):
+        for j in range(n):
+            if cm[i, j] > min_share:
+                src.append(i); tgt.append(n + j); val.append(float(cm[i, j]))
+    return {"labels": [f"{c} (first)" for c in CLASS_NAMES] + [f"{c} (last)" for c in CLASS_NAMES], "source": src, "target": tgt, "value": val}
