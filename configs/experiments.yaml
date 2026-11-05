@@ -36,3 +36,5 @@ variants:
   # 5-month window (plus or minus 2 months). A comparable model gained about 1 point of validation mIoU and cut class flips by a quarter going from
   # plus or minus 1 to plus or minus 2. Not run for us yet: judge on validation against V12 under the same rule before shipping.
   V18_window5:           {weights: auto, window: 5, yearly_stats: true, region_balance: equal}
+  # One month plus the yearly statistics. No neighbour months, so a month that has not happened yet cannot affect the input except through the statistics.
+  V19_window1_stats:     {weights: auto, window: 1, yearly_stats: true, region_balance: equal}

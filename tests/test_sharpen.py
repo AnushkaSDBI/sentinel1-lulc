@@ -199,3 +199,62 @@ def test_notebook_variables_survive_percent_run():
     assert {"BASELINE", "PASSED_STEP", "PASSED_COMPARE"} <= used
     clashes = used & set(vars(sharpen_eval))
     assert clashes <= {"ROOT"}, clashes                    # ROOT, if ever used, is the same repo path on both sides
+
+
+class _Recorder(nn.Module):
+    """Keeps the input it was given and predicts a constant, so a test can read what reached the model."""
+
+    def __init__(self, in_ch):
+        super().__init__()
+        self.head = nn.Conv2d(in_ch, 6, 1)
+        self.seen = None
+
+    def forward(self, x):
+        self.seen = x.detach().clone()
+        return self.head(x)
+
+
+def _partial_year(h=64, last=9):
+    """Twelve-month store whose months after `last` (0-based) have not happened: their codes are all 0."""
+    s1 = np.random.default_rng(0).integers(1, 250, (12, 2, h, h), dtype=np.uint8)
+    s1[last + 1:] = 0
+    present = np.arange(12) <= last
+    return RegionStore(key="a", split="test", s1=s1, label=np.zeros((12, h, h), np.uint8), present=present)
+
+
+def test_a_future_month_reaches_the_model_as_the_last_real_month():
+    store, before = _partial_year(), None
+    before = store.s1.copy()
+    seen = {}
+    for fill in (True, False):
+        model = _Recorder(6)
+        predict_month([model], store, 9, NORM, 3, torch.device("cpu"), patch=64, overlap=0, amp=False, fill_gaps=fill)
+        seen[fill] = model.seen[0]
+    assert torch.equal(seen[True][4:6], seen[True][2:4])          # next month = this month, as December has at a year's end
+    assert (seen[False][4:6] == 0).all() and (seen[False][2:4] != 0).any()
+    assert np.array_equal(store.s1, before)                        # the store is left alone
+
+
+def test_five_month_window_fills_every_future_month():
+    store = _partial_year()
+    model = _Recorder(10)
+    predict_month([model], store, 9, NORM, 5, torch.device("cpu"), patch=64, overlap=0, amp=False)
+    x = model.seen[0]
+    assert torch.equal(x[6:8], x[4:6]) and torch.equal(x[8:10], x[4:6]) and not torch.equal(x[0:2], x[4:6])
+
+
+def test_fill_is_per_pixel_and_never_invents_the_centre_month():
+    from lulc.data import fill_window_gaps
+    s = np.full((3, 2, 4, 4), 100, np.uint8)
+    s[1] = 50                  # centre
+    s[2, 0, 0, 0] = 0          # one pixel missing in the next month, VV only
+    s[0, :, 1, 1] = 0          # one pixel missing in the previous month
+    s[1, :, 2, 2] = 0          # centre has no data here
+    s[0, :, 2, 2] = 0          # and neither does the previous month
+    out = fill_window_gaps(s)
+    assert out[2, 0, 0, 0] == 50 and out[2, 1, 0, 0] == 100 and out[2, 0, 0, 1] == 100
+    assert (out[0, :, 1, 1] == 50).all()
+    assert (out[1] == s[1]).all() and (out[0, :, 2, 2] == 0).all()
+    assert s[2, 0, 0, 0] == 0  # the input is not changed
+    one = np.full((1, 2, 4, 4), 7, np.uint8)
+    assert np.array_equal(fill_window_gaps(one), one)

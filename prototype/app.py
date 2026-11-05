@@ -988,8 +988,59 @@ with tab_card:
     info = layers.card_summary(card or {}, names)
     yrs = layers.read_train_years(weights)
     yrs_txt = (f"train {yrs.get('train')}, validation {yrs.get('val')}" if yrs else "not found (no years.json next to the weights)")
-    a, b = st.columns(2)
-    a.markdown(f"""
+    results_dir = ROOT / "results"
+    ev = layers.find_eval_dir(results_dir)
+    scores = layers.load_scores(ev) if ev else {}
+    t_scores, t_build, t_trust = st.tabs(["How well it works", "How it was built", "What to trust"])
+
+    # ---- 1. scores
+    with t_scores:
+        if not scores:
+            st.info("No evaluation files found in `results/`. Run `scripts/evaluate.py` and `scripts/collect_results.py`, then reload. "
+                    "Scores are never typed into this page by hand.")
+        else:
+            names_map = {"dw": "Dynamic World, all test regions", "dw_cities": "Dynamic World, city regions", "dw_rural": "Dynamic World, rural regions",
+                         "wc": "WorldCover 2021 (independent)", "esri": "Esri 2021 (independent)"}
+            top = scores.get("dw") or next(iter(scores.values()))
+            iou_top = {n: top["per_class_iou"].get(n) for n in CLASS_NAMES if top["per_class_iou"].get(n) is not None}
+            m = st.columns(4)
+            m[0].metric("mIoU", f"{top['miou']:.3f}", border=True, height=130,
+                        help="Mean of the per-class IoU over the 6 classes. 1 is perfect. Every class counts equally, so one weak class pulls it down.")
+            m[1].metric("Overall accuracy", f"{top['oa']:.3f}" if top.get("oa") is not None else "–", border=True, height=130,
+                        help="Share of pixels with the right class. Big classes dominate it, so read mIoU first.")
+            if iou_top:
+                best_c, worst_c = max(iou_top, key=iou_top.get), min(iou_top, key=iou_top.get)
+                m[2].metric("Best class", best_c, f"IoU {iou_top[best_c]:.2f}", border=True, height=130, delta_color="off")
+                m[3].metric("Weakest class", worst_c, f"IoU {iou_top[worst_c]:.2f}", border=True, height=130, delta_color="off")
+            avail = [k for k in names_map if k in scores]
+            pick = st.radio("Scored against", avail, format_func=names_map.get, horizontal=True,
+                            help="Dynamic World is the training label, so it is not independent. WorldCover and Esri are, for 2021.")
+            sc = scores[pick]
+            vals = [sc["per_class_iou"].get(n) for n in CLASS_NAMES]
+            if any(v is not None for v in vals):
+                fig = go.Figure()
+                for n, c, v in zip(CLASS_NAMES, CLASS_COLORS, vals):
+                    if v is None:
+                        continue
+                    fig.add_bar(x=[n], y=[v], name=n, marker=dict(color=c, line=dict(color="#888", width=1)),
+                                text=[f"{v:.2f}"], textposition="outside", cliponaxis=False)
+                fig.add_hline(y=sc["miou"], line_dash="dash", line_color="#888",
+                              annotation_text=f"mIoU {sc['miou']:.2f}", annotation_position="top right")
+                fig.update_layout(height=340, margin=dict(t=40, b=10, l=10, r=10), yaxis=dict(range=[0, 1.1], title="IoU"),
+                                  legend=dict(orientation="h", y=1.15, x=0), bargap=0.35, title=dict(text=f"IoU per class, {names_map[pick]}", font=dict(size=14)))
+                st.plotly_chart(fig, width="stretch")
+            st.caption("IoU is the overlap between predicted and reference pixels of a class divided by their union. "
+                       "Dynamic World is the training label, so only WorldCover and Esri are independent, and only for 2021.")
+            with st.expander("All scores with 95% intervals"):
+                tab = pd.DataFrame({names_map[k]: {"mIoU": v["miou"], "95% interval": (f"{v['miou_lo']:.3f} to {v['miou_hi']:.3f}" if v.get("miou_lo") is not None else ""),
+                                                  "overall accuracy": v["oa"]} for k, v in scores.items()}).T
+                st.dataframe(tab)
+                st.caption(f"From `{ev.relative_to(ROOT) if ROOT in ev.parents else ev}`. Test regions are whole cities and areas never used in training.")
+
+    # ---- 2. build
+    with t_build:
+        a, b = st.columns(2, gap="large")
+        a.markdown(f"""
 **Architecture:** {info['architecture']}
 **Input:** {info['n_channels']} channels, a {info['window_months']}-month window of Sentinel-1 VV and VH{' plus 5 yearly radar statistics' if info['uses_stats'] else ''}{' plus interferometric coherence (research model)' if info['uses_coherence'] else ''}
 **Patch size:** {info['patch']} px (10 m pixels)
@@ -998,38 +1049,8 @@ with tab_card:
 **Training years:** {yrs_txt}
 **Epochs / batch size / seed:** {info['epochs'] or '?'} / {info['batch_size'] or '?'} / {info['seed'] if info['seed'] is not None else '?'}
 """)
-    b.markdown("**Classes**" + legend_html(), unsafe_allow_html=True)
-    with st.expander("Channels and normalisation"):
-        if info["norm"]:
-            st.dataframe(pd.DataFrame(info["norm"]).T.rename(columns={"mean": "mean (dB or unit)", "std": "std"}))
-        if info["composite"]:
-            st.json(info["composite"])
-    results_dir = ROOT / "results"
-    ev = layers.find_eval_dir(results_dir)
-    scores = layers.load_scores(ev) if ev else {}
-    st.markdown("**Test scores**")
-    if not scores:
-        st.info("No evaluation files found in `results/`. Run `scripts/evaluate.py` and `scripts/collect_results.py`, then reload. "
-                "Scores are never typed into this page by hand.")
-    else:
-        names_map = {"dw": "Dynamic World, all test regions", "dw_cities": "Dynamic World, city regions", "dw_rural": "Dynamic World, rural regions",
-                     "wc": "WorldCover 2021 (independent)", "esri": "Esri 2021 (independent)"}
-        tab = pd.DataFrame({names_map[k]: {"mIoU": v["miou"], "95% interval": (f"{v['miou_lo']:.3f} to {v['miou_hi']:.3f}" if v.get("miou_lo") is not None else ""),
-                                          "overall accuracy": v["oa"]} for k, v in scores.items()}).T
-        st.dataframe(tab)
-        if "dw" in scores and scores["dw"]["per_class_iou"]:
-            st.markdown("**IoU per class (Dynamic World, test regions)**")
-            st.bar_chart(pd.Series(scores["dw"]["per_class_iou"], name="IoU"), height=240, color="#555555")
-        st.caption(f"From `{ev.relative_to(ROOT) if ROOT in ev.parents else ev}`. Test regions are whole cities and areas never used in training. "
-                   "Dynamic World is the training label, so only WorldCover and Esri are independent, and only for 2021.")
-    st.markdown("**Known limits**")
-    st.markdown("- The labels are annual, so the monthly maps have no ground truth.\n"
-                "- Grass/shrub and Cropland are the weak classes; radar cannot reliably separate them.\n"
-                "- Sentinel-1B stopped in December 2021: later years have about half the scenes per month.\n"
-                "- No terrain flattening: hills carry slope errors. Arid shrubland and places unlike the training regions are weakest.")
-
-with tab_info:
-    st.markdown(f"""
+        b.markdown("**Classes**" + legend_html(), unsafe_allow_html=True)
+        st.markdown(f"""
 **Method.** Sentinel-1 IW, VV and VH, from Earth Engine (calibrated, terrain-corrected, in dB). For every month: temporal median of the
 dB scenes of the region's dominant orbit direction. A U-Net (ResNet-34) reads a 3-month window and predicts one map per month. The
 {res['k']} ensemble members are trained with different seeds; the maps are the mean of their probabilities.
@@ -1037,17 +1058,27 @@ dB scenes of the region's dominant orbit direction. A U-Net (ResNet-34) reads a 
 **Change.** Class shares use only pixels valid in all months. Change is the difference of shares in percentage points.
 Smoothing replaces each month's class with the majority over the month and its two neighbours. A pixel with no radar in a month stays
 "no radar" in that month, and a month with no radar at all is left out of the change figures.
-
-**What to trust.**
-- The monthly maps have **no ground truth**: labels are annual, and Dynamic World, our training label, is itself a model.
-- On land that did not change, the model still reports about {proto.NOISE_FLOOR['monthly_churn_raw_pp']} pp total churn per month
-  ({proto.NOISE_FLOOR['monthly_churn_smoothed_pp']} pp with smoothing). Smaller changes are noise.
-- Grass/shrub is weak (IoU about 0.38 against Dynamic World, V12, 2021 test regions). Radar cannot reliably separate grass, shrub and crops.
-- Weak in arid shrubland and in landscapes unlike the training regions (mostly European cities plus a few rural tiles).
-- The area check compares mean confidence and seed disagreement with a few held-out test regions. It is a coarse flag, not a
-  probability of being wrong, and it only exists when `ood_reference.json` is in the weights folder.
-- No radiometric terrain flattening: hilly areas carry slope-dependent errors.
-- Sentinel-1B stopped in December 2021, so later years have about half as many scenes per month.
-- Any place and any month from 2015 works if Earth Engine has radar there. Independent maps: WorldCover for 2021 only, Esri annual land cover for 2017 to 2025 (2025 unconfirmed until you run it), none for 2026. Where none exists the check tab falls back to Dynamic World and says it is not independent.
-- Rural areas are covered by 15 test and train tiles; the rural score is lower than the city score (see report). Dry shrubland, bare mountains and snow are the weakest.
 """)
+        with st.expander("Channels and normalisation"):
+            if info["norm"]:
+                st.dataframe(pd.DataFrame(info["norm"]).T.rename(columns={"mean": "mean (dB or unit)", "std": "std"}))
+            if info["composite"]:
+                st.json(info["composite"])
+
+    # ---- 3. trust
+    with t_trust:
+        g, w = st.columns(2, gap="large")
+        g.markdown("**Weak spots**")
+        g.markdown("- Grass/shrub is the weakest class (IoU about 0.38 against Dynamic World, V12, 2021 test regions). Radar cannot reliably separate grass, shrub and crops.\n"
+                   "- Arid shrubland, bare mountains, snow and landscapes unlike the training regions (mostly European cities plus a few rural tiles). The rural score is lower than the city score.\n"
+                   "- No radiometric terrain flattening: hilly areas carry slope-dependent errors.\n"
+                   "- Sentinel-1B stopped in December 2021, so later years have about half as many scenes per month.")
+        w.markdown("**What the numbers can and cannot say**")
+        w.markdown("- The labels are annual, so the monthly maps have **no ground truth**. Dynamic World, our training label, is itself a model.\n"
+                   f"- On land that did not change, the model still reports about {proto.NOISE_FLOOR['monthly_churn_raw_pp']} pp total churn per month "
+                   f"({proto.NOISE_FLOOR['monthly_churn_smoothed_pp']} pp with smoothing). Smaller changes are noise.\n"
+                   "- The area check compares mean confidence and seed disagreement with a few held-out test regions. It is a coarse flag, not a probability of being wrong, "
+                   "and it only exists when `ood_reference.json` is in the weights folder.\n"
+                   "- Independent maps: WorldCover for 2021 only, Esri annual land cover for 2017 to 2025 (2025 unconfirmed until you run it), none for 2026. "
+                   "Where none exists the check tab falls back to Dynamic World and says it is not independent.\n"
+                   "- Any place and any month from 2015 works if Earth Engine has radar there.")

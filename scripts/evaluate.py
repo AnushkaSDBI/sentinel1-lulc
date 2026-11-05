@@ -43,6 +43,8 @@ def main(argv=None) -> int:
                     help="skip regions that have no month files at all for --year (e.g. a region exported for 2025 and 2026 only) and say which")
     ap.add_argument("--min-class-share", type=float, default=0.01,
                     help="per-region 'major class' mIoU counts only classes with at least this share of the region's reference pixels")
+    ap.add_argument("--no-fill-gaps", action="store_true",
+                    help="feed no-data neighbour months to the model as blanks, as before, instead of filling them from the nearest month in the window (for a before/after comparison)")
     args = ap.parse_args(argv)
     if not 0 <= args.overlap < args.patch:
         raise SystemExit(f"--overlap must be at least 0 and smaller than --patch, got overlap {args.overlap}, patch {args.patch}")
@@ -53,7 +55,7 @@ def main(argv=None) -> int:
     from lulc.change_eval import false_change, member_spread, probability_smooth, stable_mask, temporal_majority
     from lulc.data import load_store
     from lulc.infer import predict_region
-    from lulc.metrics import ConfusionMatrix, bootstrap_miou
+    from lulc.metrics import ConfusionMatrix, bootstrap_miou, map_agreement_counts, tolerant_target
     from lulc.ood import area_signature
     from lulc.sharpness import boundary_counts, f1_from_counts
     from lulc.train import load_model
@@ -73,7 +75,8 @@ def main(argv=None) -> int:
         print("NOTE: this model was trained on labels filtered by WorldCover. Scores against WorldCover are no longer independent; "
               "report Esri as the independent check.")
     out = Path(args.runs) / f"eval_{args.variant}{args.tag}"; out.mkdir(parents=True, exist_ok=True)
-    print(f"{len(models)} seeds, window {window}, coherence {use_coh}, yearly stats {use_stats}, year {year}, patch {args.patch}, overlap {args.overlap}")
+    print(f"{len(models)} seeds, window {window}, coherence {use_coh}, yearly stats {use_stats}, year {year}, patch {args.patch}, overlap {args.overlap}, "
+          f"fill gaps {not args.no_fill_gaps}")
     if year != cfg_year:
         print(f"NOTE: year {year} differs from the label year {cfg_year}. Only Dynamic World of {year} is used; the WorldCover/Esri rows "
               "and the stable-land flicker test (2021 maps) are skipped. Esri of the same year is scored when reference_esri_<year>.npz exists.")
@@ -89,7 +92,8 @@ def main(argv=None) -> int:
                     vals |= set(np.unique(z["esri"]).tolist())
         scheme = detect_esri_scheme(np.array(sorted(v for v in vals if v > 0))) if vals else None
         print("Esri scheme:", scheme)
-    per = {s: {} for s in ("dw", "wc", "esri", "agree", "dw_wc_agree", *(("dw_majority", "dw_probmean") if args.prob_smooth else ()))}
+    per = {s: {} for s in ("dw", "wc", "esri", "agree", "dw_wc_agree", "tolerant", *(("dw_majority", "dw_probmean") if args.prob_smooth else ()))}
+    agreement = np.zeros((N_CLASSES, 4), np.int64)   # per Dynamic World class: pixels, WorldCover agrees, Esri agrees, both agree
     change_rows, city_rows = [], []
     group_of = {}
     ood_rows = []                       # label-free signature per region, for the prototype warning
@@ -106,7 +110,7 @@ def main(argv=None) -> int:
         group_of[r.key] = "cities" if r.half_size_km > 6 else "rural"
         store = load_store(args.data, r.key, r.split, year, 0.0, ((card.get("config") or {}).get("coherence") or use_coh) if use_coh else False, stats=use_stats)
         res = predict_region(list(models), store, norm, window, dev, use_coh=use_coh, use_stats=use_stats, return_probs=args.prob_smooth,
-                             patch=args.patch, overlap=args.overlap)
+                             patch=args.patch, overlap=args.overlap, fill_gaps=not args.no_fill_gaps)
         preds, conf, members, months = res[:4]
         lab = store.label[months]
         cms = {k: ConfusionMatrix(N_CLASSES) for k in per}
@@ -133,6 +137,8 @@ def main(argv=None) -> int:
                 cms["wc"].update(preds[t], wc); cms["esri"].update(preds[t], es)
                 cms["agree"].update(preds[t], np.where(stable, wc, IGNORE_INDEX))
                 cms["dw_wc_agree"].update(preds[t], np.where(lab[t] == wc, wc, IGNORE_INDEX))   # Dynamic World scored only where WorldCover agrees
+                cms["tolerant"].update(preds[t], tolerant_target(preds[t], lab[t], wc, es))     # correct if it matches any of the three maps
+                agreement += map_agreement_counts(lab[t], wc, es)
         elif year != cfg_year:     # another year: only Esri has an annual map (reference_esri_<year>.npz from export_reference.py --year)
             eref = Path(args.data) / r.key / f"reference_esri_{year}.npz"
             if eref.exists():
@@ -228,8 +234,17 @@ def main(argv=None) -> int:
             t = pc[pc.set == s]
             if len(t):
                 print(f"-- {s}"); print(t.drop(columns="set").round(3).to_string(index=False))
+    if agreement[:, 0].sum():
+        share = 100 * agreement[:, 1:] / np.maximum(agreement[:, [0]], 1)
+        agree_tab = pd.DataFrame(share, index=CLASS_NAMES, columns=["worldcover_agrees_%", "esri_agrees_%", "both_agree_%"]).round(1)
+        agree_tab.insert(0, "dw_pixels", agreement[:, 0])
+        agree_tab.to_csv(out / "map_agreement.csv")
+        print("\nHow often the other maps agree with Dynamic World, per Dynamic World class (no model involved):")
+        print(agree_tab)
     for k, v in metrics.items():
         print(f"{k:12s} mIoU {v['miou']:.3f} [{v['miou_lo']:.3f}, {v['miou_hi']:.3f}]  OA {v['oa']:.3f}  ({v['n_cities']} cities)")
+    if "tolerant" in metrics:
+        print("tolerant: a prediction counts as correct if it matches Dynamic World, WorldCover or Esri. It flatters any model; the gap to dw is the error the maps themselves dispute.")
     if change_rows:
         print(pd.DataFrame(change_rows).groupby("maps")[["flip_rate_pct", "monthly_churn_pp", "net_total_change_pp"]].mean().round(2))
     if skipped:

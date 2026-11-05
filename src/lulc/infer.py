@@ -6,7 +6,7 @@ import numpy as np
 import torch
 
 from .classes import IGNORE_INDEX
-from .data import RegionStore, window_months
+from .data import RegionStore, fill_window_gaps, window_months
 from .patches import window_starts
 from .torch_data import extra_patch, extra_spec, prepare
 
@@ -46,16 +46,21 @@ def softmax_tta(model, xin: torch.Tensor, tta: bool = False) -> torch.Tensor:
 @torch.no_grad()
 def predict_month(models, store: RegionStore, month: int, norm: dict, window: int, device,
                   patch: int = 512, overlap: int = 64, use_coh: bool = False, amp: bool = True,
-                  use_stats: bool = False, return_probs: bool = False, tta: bool = False, blend: str = "uniform"):
+                  use_stats: bool = False, return_probs: bool = False, tta: bool = False, blend: str = "uniform",
+                  fill_gaps: bool = True):
     """Mean softmax over `models` for one month. Returns (pred uint8 (H,W), maxprob float16 (H,W),
     member_preds list of uint8 (H,W)). No-data Sentinel-1 pixels (VV code 0) get IGNORE_INDEX.
-    tta (8 times slower) and blend are the optional border refinements; the defaults leave the maps as they were."""
+    tta (8 times slower) and blend are the optional border refinements; their defaults leave the maps as they were.
+    fill_gaps fills no-data neighbour months from the nearest month in the window (data.fill_window_gaps); False feeds them as blanks."""
     h, w = store.size
     patch = min(patch, h, w)
     stride = max(patch - overlap, 1)
     weight = blend_weights(patch, blend)
     idx = window_months(month, window, store.s1.shape[0])
-    full = torch.from_numpy(store.s1[idx].reshape(window * 2, h, w))
+    stack = store.s1[idx]
+    if fill_gaps:
+        stack = fill_window_gaps(stack)
+    full = torch.from_numpy(stack.reshape(window * 2, h, w))
     n_cls = None
     spec = extra_spec(store.coh.shape[0] if use_coh else 0, use_stats)
     acc = None

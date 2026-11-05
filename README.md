@@ -198,6 +198,13 @@ bootstrap intervals over cities, and the false-change test (change reported on p
 raw vs 3-month majority vs Dynamic World itself, plus the spread across seeds). Out-of-year: export test cities with
 `--year 2024` and pass `--year 2024 --tag _2024`.
 
+For the label year it also writes the `tolerant` row (a prediction counts if it matches Dynamic World, WorldCover or Esri, so it flatters any
+model: report it next to `dw`, never instead) and `map_agreement.csv` (how often the other maps agree with Dynamic World, per class).
+
+At inference, a no-data neighbour month in the window takes the value of the next month towards the centre, as the year's ends already do.
+A month that has not happened yet therefore no longer reaches the model as a blank input. Training is unchanged. `--no-fill-gaps` restores the
+old input for a before/after comparison. Yearly statistics of a partial year still use only the months that exist.
+
 ## Step 4: prototype
 
 The app shows the class map over a satellite photo (opacity slider, street-map option), lets you pick the place by clicking a map,
