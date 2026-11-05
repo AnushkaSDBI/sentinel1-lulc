@@ -2,7 +2,7 @@
 
 Five per-pixel statistics of the monthly VV/VH dB series. They do not depend on which month
 comes first, so they transfer across hemispheres, unlike a calendar-tied decomposition (PCA).
-Statistic set and the -18 dB water threshold follow a reference implementation (re-implemented).
+The -18 dB threshold separates open water and other smooth surfaces.
 
     st0  VV minimum            st3  VH spread: 2nd highest - 2nd lowest month
     st1  VV maximum            st4  share of months with VV < -18 dB (open water, smooth surfaces)

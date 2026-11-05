@@ -54,8 +54,7 @@ regions:
   finnish_lakeland:   {name: Finnish lakeland (water),      lat: 62.00, lon: 27.50,  split: train, half_size_km: 5.12}
   lake_balaton:       {name: Lake Balaton (water),          lat: 46.85, lon: 17.75,  split: test,  half_size_km: 5.12}
 
-  # Southern-hemisphere and arid/steppe tiles, train only (centres taken from reference implementation C's
-  # project config, coverage not yet checked: run scripts/ee_year_stats.py on them before exporting).
+  # Southern-hemisphere and arid/steppe tiles, train only (coverage not yet checked: run scripts/ee_year_stats.py on them before exporting).
   # They fill two gaps: no southern-hemisphere seasons in training, and few shrub/steppe/desert tiles.
   pampas:             {name: Pampas (cropland, southern),   lat: -34.00, lon: -60.50,  split: train, half_size_km: 5.12}
   nsw_pasture:        {name: NSW pasture (grass, southern), lat: -35.10, lon: 147.40,  split: train, half_size_km: 5.12}

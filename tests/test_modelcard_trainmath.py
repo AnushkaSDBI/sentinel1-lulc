@@ -1,4 +1,3 @@
-import numpy as np
 import pytest
 
 from lulc.modelcard import build_model_card, read_model_card, write_model_card

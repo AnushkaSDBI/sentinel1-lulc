@@ -5,7 +5,6 @@ Run from the repository root:   streamlit run prototype/app.py
 from __future__ import annotations
 
 import gzip
-from collections import Counter
 import io
 import os
 import pickle
@@ -32,7 +31,7 @@ except ImportError:
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import Patch
 
-from lulc import proto
+from lulc import layers, proto
 from lulc.classes import CLASS_COLORS, CLASS_NAMES
 from lulc.ood import area_signature, ood_check
 from lulc.quant import dequantize_db
@@ -347,18 +346,17 @@ if run:
                 st.warning(w)
             grid = proto.fetch_months(ee, region, ym, CACHE, lambda f, t: bar.progress(f * 0.5, t))
             store = proto.load_store_ym(CACHE, region.key, ym)
-            from collections import Counter
-            ym_year = Counter(y for y, _ in ym).most_common(1)[0][0]        # the dominant calendar year of the 12 months
-            if sum(y == 2021 for y, _ in ym) >= 6:
+            plan = proto.reference_plan(ym)
+            if plan["kind"] == "worldcover+esri":
                 try:
-                    reference = proto.fetch_reference(ee, region, CACHE)     # WorldCover + Esri (2021 only)
+                    reference = proto.fetch_reference(ee, region, CACHE)     # WorldCover 2021 + Esri 2021
                 except Exception as e:
                     st.warning(f"Reference maps not available: {e}")
-            elif 2017 <= ym_year <= 2023 and sum(y == ym_year for y, _ in ym) >= 6:
+            elif plan["kind"] == "esri":
                 try:
-                    reference = proto.fetch_esri_reference(ee, region, ym_year, CACHE)   # Esri annual map for this year (independent)
+                    reference = proto.fetch_esri_reference(ee, region, plan["year"], CACHE)   # Esri annual map of that year (independent)
                 except Exception as e:
-                    st.warning(f"Esri reference for {ym_year} not available: {e}")
+                    st.warning(f"Esri map for {plan['year']} not available: {e}")
             place = proto.demo_name(lat, lon) or f"{lat:.4f}, {lon:.4f}"      # a demo gets a readable name in the saved-run list
             bounds = proto.bounds_latlon(region)
         else:
@@ -386,7 +384,7 @@ if run:
         labels = proto.month_labels([ym[i] for i in months])
         ood = ood_check(area_signature(conf, members), proto.load_ood_reference(weights))
         st.session_state["res"] = dict(ood=ood, store=store, ym=[ym[i] for i in months], months=months, labels=labels, preds=preds,
-                                       members=members, reference=reference, bounds=bounds, place=place, smooth=smooth, k=len(models), grid=grid,
+                                       members=members, conf=conf.astype(np.float16), reference=reference, ref_plan=proto.reference_plan(ym), bounds=bounds, place=place, smooth=smooth, k=len(models), grid=grid,
                                        absent=[ym[i] for i, ok in enumerate(store.present) if not ok])
         try:
             st.toast(f"Saved for offline replay: {save_run(st.session_state['res'])}")    # keep it for instant offline replay later
@@ -453,14 +451,71 @@ if any(low):
     st.warning("Few Sentinel-1 scenes in: " + ", ".join(f"{labels[k]} ({scenes[k]:.0f})" for k, f in enumerate(low) if f)
                + ". The composite is noisier in these months, and the maps can change for that reason alone.")
 
-tab_map, tab_cmp, tab_share, tab_change, tab_years, tab_check, tab_info = st.tabs(
-    ["Maps", "Compare side by side", "Class shares", "Change", "Change over years", "Check against independent maps", "Method and limits"])
+conf_all = res.get("conf")
+conf_is_vote = conf_all is None                          # runs saved before the confidence was kept: fall back to seed votes
+if conf_is_vote:
+    conf_all = layers.vote_confidence(res["members"])
+conf_all = np.asarray(conf_all, np.float32)
+n_switch = layers.switch_count(preds)
+major_map = layers.majority_map(preds)
+since_first = layers.change_since_first(preds, first)
+
+
+def layer_overlay(layer, i, highlight, uncertain):
+    """(RGBA image, layer name) for the map viewer."""
+    if layer == "12-month majority":
+        return proto.overlay_rgba(major_map, CLASS_COLORS, no_data="hatch"), f"Majority class, {len(labels)} months"
+    if layer == "Model confidence":
+        return layers.confidence_rgba(conf_all[i]), f"Model confidence ({labels[i]})"
+    if layer == "Change since first month":
+        return proto.overlay_rgba(since_first[i], CLASS_COLORS), f"Changed since {labels[first]} ({labels[i]})"
+    if layer == "Change frequency (year)":
+        return layers.frequency_rgba(n_switch), "Change frequency"
+    if layer == "Sentinel-1 VV (dB)":
+        return layers.vv_rgba(store.s1[months[i]]), f"Sentinel-1 VV ({labels[i]})"
+    img = (proto.highlight_rgba(preds[i], preds[i - 1], CLASS_COLORS, no_data="hatch", uncertain=uncertain) if highlight and i > 0
+           else proto.overlay_rgba(preds[i], CLASS_COLORS, no_data="hatch", uncertain=uncertain))
+    return img, f"Land cover ({labels[i]})"
+
+
+def swatch(bg, text):
+    return (f'<span style="display:inline-flex;align-items:center;margin:2px 14px 2px 0;font-size:0.9rem">'
+            f'<span style="width:16px;height:16px;border-radius:3px;background:{bg};border:1px solid #888;margin-right:6px"></span>{text}</span>')
+
+
+def layer_legend(layer, i):
+    valid = (preds != 255).all(0)
+    if layer == "12-month majority":
+        return "**Most frequent class over the period**" + legend_html()
+    if layer == "Change since first month":
+        pct = 100 * float((since_first[i] != 255).sum()) / max(int((preds[first] != 255).sum()), 1)
+        return (f"**Pixels whose class differs from {labels[first]}: {pct:.1f}%**, painted in their class of {labels[i]}. Unchanged pixels are transparent."
+                + legend_html())
+    if layer == "Model confidence":
+        note = ("Share of the ensemble members that agree (a vote share, not a probability). This run was saved without the softmax confidence."
+                if conf_is_vote else "Mean softmax confidence of the ensemble before smoothing.")
+        bar = '<span style="display:inline-block;width:160px;height:12px;background:linear-gradient(90deg,#282828,#f0f0f0);border:1px solid #888;vertical-align:middle"></span>'
+        extra = " With a single model every pixel counts as fully confident, so this layer says nothing." if res["k"] == 1 else ""
+        return f"**Model confidence** {bar} dark = unsure, light = sure. {note}{extra}"
+    if layer == "Change frequency (year)":
+        sh = layers.frequency_shares(n_switch, valid)
+        chips = "".join(swatch(c, f"{lab} ({sh[lab]:.1f}%)") for c, lab in zip(layers.FREQ_COLORS, layers.FREQ_LABELS))
+        return f"**Class switches between consecutive months** ({sh['0 changes']:.1f}% never switch)<br>{chips}<br><small>{layers.FREQ_CAPTION}</small>"
+    return ("**Sentinel-1 VV backscatter** " + '<span style="display:inline-block;width:160px;height:12px;background:linear-gradient(90deg,#000,#fff);'
+            'border:1px solid #888;vertical-align:middle"></span> −25 dB (dark: water, smooth) to 0 dB (bright: buildings, rough). Month-specific, no model involved.')
+
+
+tab_map, tab_video, tab_cmp, tab_share, tab_change, tab_years, tab_check, tab_card, tab_info = st.tabs(
+    ["Maps", "Month-by-month video", "Compare side by side", "Class shares", "Change", "Change over years",
+     "Check against independent maps", "Model card", "Method and limits"])
 
 with tab_map:
     i = st.select_slider("Month", options=list(range(len(labels))), format_func=lambda k: labels[k], key="month")
     bounds = res.get("bounds")
     if (preds[i] == 255).all():
         st.warning(f"No Sentinel-1 data for {labels[i]}: this month has no map, and it is left out of the change figures.")
+    layer = st.selectbox("Layer", layers.LAYER_NAMES, key="layer",
+                         help="Land cover is the model output. The others are views of the same maps, or the radar itself.")
     disagree = out["disagree"]
     grey = st.checkbox("Grey out pixels where the seeds disagree", False, disabled=disagree is None,
                        help="Pixels where the ensemble members do not all give the same class. Display only: shares and change still use every pixel."
@@ -473,16 +528,17 @@ with tab_map:
         c1, c2 = left.columns(2)
         alpha = c1.slider("Class layer opacity", 0.0, 1.0, 0.85, 0.05)
         satellite = c2.radio("Basemap", ["Satellite photo", "Street map"], horizontal=True) == "Satellite photo"
-        hl = left.checkbox("Highlight pixels that changed since the previous month", False, disabled=i == 0,
+        hl = left.checkbox("Highlight pixels that changed since the previous month", False, disabled=i == 0 or layer != "Land cover",
                            help="Unchanged pixels are faded. Most highlighted pixels are noise, see the Change tab.")
         m = base_map(bounds, satellite)
-        img = (proto.highlight_rgba(preds[i], preds[i - 1], CLASS_COLORS, no_data="hatch", uncertain=uncertain) if hl and i > 0
-               else proto.overlay_rgba(preds[i], CLASS_COLORS, no_data="hatch", uncertain=uncertain))
-        folium.raster_layers.ImageOverlay(image=img, bounds=bounds, opacity=alpha,
-                                          name=f"Land cover ({labels[i]})", overlay=True).add_to(m)
+        img, layer_name = layer_overlay(layer, i, hl, uncertain)
+        folium.raster_layers.ImageOverlay(image=img, bounds=bounds, opacity=alpha, name=layer_name, overlay=True).add_to(m)
         folium.LayerControl(collapsed=False).add_to(m)
         hit = st_folium(m, height=520, use_container_width=True, returned_objects=["last_clicked"], key="resmap")
-        left.markdown(f"**Share of the area, {labels[i]}**" + legend_html(stats.percent.iloc[i], seeds=grey), unsafe_allow_html=True)
+        if layer == "Land cover":
+            left.markdown(f"**Share of the area, {labels[i]}**" + legend_html(stats.percent.iloc[i], seeds=grey), unsafe_allow_html=True)
+        else:
+            left.markdown(layer_legend(layer, i), unsafe_allow_html=True)
         lc = (hit or {}).get("last_clicked")
         px = proto.click_to_pixel(lc["lat"], lc["lng"], bounds, preds.shape) if lc else None
     else:
@@ -493,6 +549,8 @@ with tab_map:
         left.pyplot(fig); plt.close(fig)
         if bounds is None:
             left.caption("No map position for this region, so no basemap. Earth Engine runs always have one.")
+        if layer != "Land cover":
+            left.caption("The extra layers need the interactive map (install folium) and a map position. Showing land cover instead.")
     right.image(class_rgb(preds[i], uncertain), caption=f"Predicted land cover, {labels[i]}", clamp=True, use_container_width=True)
     right.image(false_colour(store, months[i]), caption=f"Sentinel-1 radar, {labels[i]}: R = VV, G = VH, B = VV-VH", clamp=True, use_container_width=True)
     share = stats.percent.iloc[i]
@@ -534,6 +592,30 @@ with tab_map:
                            + ". 255 = no radar. Greying out is not included.")
             except ImportError as e:
                 st.info(f"GeoTIFF export needs rasterio, which cannot be loaded here: {e}")
+
+with tab_video:
+    st.subheader("Month-by-month video")
+    if len(labels) < 2:
+        st.info("A video needs at least two months with radar.")
+    else:
+        c1, c2, c3 = st.columns([2, 2, 2])
+        vmode = c1.radio("Show", ["Land cover", "Changes"], horizontal=True, key="vid_mode",
+                         help="Land cover paints every class. Changes shows only pixels that differ from the previous month.")
+        fps = c2.slider("Speed (months per second)", 0.5, 6.0, 2.0, 0.5, key="vid_fps")
+        vsize = c3.radio("Size", ["Small", "Large"], horizontal=True, key="vid_size")
+
+        @st.cache_data(show_spinner="Rendering the video ...", max_entries=6)
+        def _gif(key, mode, speed, size):
+            return layers.animation_gif(preds, labels, CLASS_COLORS, mode=mode, fps=speed, max_side=480 if size == "Small" else 800)
+
+        gif = _gif((res["place"], tuple(labels), bool(res["smooth"]), preds.shape, int(preds.sum() % 100003)), vmode, fps, vsize)
+        st.image(gif, caption=f"{labels[0]} to {labels[-1]}, {fps:g} months per second. The video loops.", output_format="GIF")
+        st.download_button("Download video (GIF)", gif, f"lulc_{_slug(res['place'])}_{vmode.lower().replace(' ', '_')}.gif", "image/gif")
+        flips = [100 * float(((preds[k] != preds[k - 1]) & (preds[k] != 255) & (preds[k - 1] != 255)).sum()) / max(int(((preds[k] != 255) & (preds[k - 1] != 255)).sum()), 1)
+                 for k in range(1, len(preds))]
+        st.caption("In Changes mode most coloured pixels flicker on and off from month to month. That is the model's noise and seasonal radar effects, "
+                   f"not land-use change: on average {np.mean(flips):.1f}% of the pixels switch class between consecutive months here. "
+                   "The labels are annual, so no month has ground truth.")
 
 with tab_cmp:
     st.subheader("Compare two maps")
@@ -779,11 +861,32 @@ with tab_years:
 
 with tab_check:
     ref = res["reference"]
-    ref_year = Counter(y for y, _ in res["ym"]).most_common(1)[0][0] if res.get("ym") else 2021
+    plan = res.get("ref_plan") or proto.reference_plan(res["ym"])
+    ref_year = plan["year"]
+    dw_ref = proto.dynamic_world_fallback(store, months)
+    st.markdown(
+        "**Which years can be checked?** WorldCover exists for 2021 only. Esri's annual map covers "
+        f"{proto.ESRI_FIRST} to {proto.ESRI_LAST} (2017 to 2024 confirmed; {proto.ESRI_LAST} is listed by the data catalog and is tried when you run it). "
+        "Nothing independent exists for 2026. Dynamic World exists for every year, but it is the label the model was trained on, so it is not independent.")
+    if ref is None and plan["kind"] is not None:
+        st.warning(f"A {plan['year']} independent map should exist, but none was loaded for this run. "
+                   "Run the place again on Earth Engine, or for a local export create it with `scripts/export_reference.py --year "
+                   f"{plan['year']}`.")
+    if ref is None and plan["kind"] is None:
+        st.info(plan["reason"])
     if ref is None:
-        st.info("Independent maps: WorldCover + Esri for 2021, or the Esri annual map for 2017-2023. They appear when at least "
-                "6 of the 12 months fall in one of those years, or when a local export includes reference.npz. Other years (2024+) "
-                "have no independent annual map yet.")
+        if dw_ref is None:
+            st.caption("This run also has no Dynamic World labels, so there is nothing to compare with.")
+        else:
+            st.error("Fallback, not independent: the model against Dynamic World of the same months. The model was trained to imitate it, "
+                     "so this measures how well it copies its teacher, not how correct it is.")
+            cmp = proto.comparison_table(preds, dw_ref)
+            st.dataframe(cmp.round(3))
+            c1, c2 = st.columns(2)
+            for col, (name, arr) in zip((c1, c2), (("Model, most frequent class", layers.majority_map(preds)), ("Dynamic World, most frequent class", dw_ref["dw"]))):
+                fig, ax = plt.subplots(figsize=(4, 4))
+                ax.imshow(show(arr), cmap=CMAP, vmin=0, vmax=6, interpolation="nearest"); ax.axis("off"); ax.set_title(name, fontsize=9)
+                col.pyplot(fig); plt.close(fig)
     else:
         esri_only = "wc" not in ref
         labels_dw = store.label[months] if store.label is not None else None
@@ -808,6 +911,53 @@ with tab_check:
             c.pyplot(fig); plt.close(fig)
         st.caption("Reference maps are annual and use their own class definitions, so part of every disagreement is definitional.")
 
+with tab_card:
+    st.subheader("Model card")
+    if card is None:
+        st.info("No model is loaded, so the model card is empty. Set the weights folder in the sidebar.")
+    info = layers.card_summary(card or {}, names)
+    yrs = layers.read_train_years(weights)
+    yrs_txt = (f"train {yrs.get('train')}, validation {yrs.get('val')}" if yrs else "not found (no years.json next to the weights)")
+    a, b = st.columns(2)
+    a.markdown(f"""
+**Architecture:** {info['architecture']}
+**Input:** {info['n_channels']} channels, a {info['window_months']}-month window of Sentinel-1 VV and VH{' plus 5 yearly radar statistics' if info['uses_stats'] else ''}{' plus interferometric coherence (research model)' if info['uses_coherence'] else ''}
+**Patch size:** {info['patch']} px (10 m pixels)
+**Output:** one map per month, {len(info['classes'])} classes, 255 = no radar
+**Ensemble:** {len(info['ensemble'])} model(s) ({', '.join(info['ensemble'])}), mean of the probabilities
+**Training years:** {yrs_txt}
+**Epochs / batch size / seed:** {info['epochs'] or '?'} / {info['batch_size'] or '?'} / {info['seed'] if info['seed'] is not None else '?'}
+""")
+    b.markdown("**Classes**" + legend_html(), unsafe_allow_html=True)
+    with st.expander("Channels and normalisation"):
+        if info["norm"]:
+            st.dataframe(pd.DataFrame(info["norm"]).T.rename(columns={"mean": "mean (dB or unit)", "std": "std"}))
+        if info["composite"]:
+            st.json(info["composite"])
+    results_dir = ROOT / "results"
+    ev = layers.find_eval_dir(results_dir)
+    scores = layers.load_scores(ev) if ev else {}
+    st.markdown("**Test scores**")
+    if not scores:
+        st.info("No evaluation files found in `results/`. Run `scripts/evaluate.py` and `scripts/collect_results.py`, then reload. "
+                "Scores are never typed into this page by hand.")
+    else:
+        names_map = {"dw": "Dynamic World, all test regions", "dw_cities": "Dynamic World, city regions", "dw_rural": "Dynamic World, rural regions",
+                     "wc": "WorldCover 2021 (independent)", "esri": "Esri 2021 (independent)"}
+        tab = pd.DataFrame({names_map[k]: {"mIoU": v["miou"], "95% interval": (f"{v['miou_lo']:.3f} to {v['miou_hi']:.3f}" if v.get("miou_lo") is not None else ""),
+                                          "overall accuracy": v["oa"]} for k, v in scores.items()}).T
+        st.dataframe(tab)
+        if "dw" in scores and scores["dw"]["per_class_iou"]:
+            st.markdown("**IoU per class (Dynamic World, test regions)**")
+            st.bar_chart(pd.Series(scores["dw"]["per_class_iou"], name="IoU"), height=240, color="#555555")
+        st.caption(f"From `{ev.relative_to(ROOT) if ROOT in ev.parents else ev}`. Test regions are whole cities and areas never used in training. "
+                   "Dynamic World is the training label, so only WorldCover and Esri are independent, and only for 2021.")
+    st.markdown("**Known limits**")
+    st.markdown("- The labels are annual, so the monthly maps have no ground truth.\n"
+                "- Grass/shrub and Cropland are the weak classes; radar cannot reliably separate them.\n"
+                "- Sentinel-1B stopped in December 2021: later years have about half the scenes per month.\n"
+                "- No terrain flattening: hills carry slope errors. Arid shrubland and places unlike the training regions are weakest.")
+
 with tab_info:
     st.markdown(f"""
 **Method.** Sentinel-1 IW, VV and VH, from Earth Engine (calibrated, terrain-corrected, in dB). For every month: temporal median of the
@@ -828,6 +978,6 @@ Smoothing replaces each month's class with the majority over the month and its t
   probability of being wrong, and it only exists when `ood_reference.json` is in the weights folder.
 - No radiometric terrain flattening: hilly areas carry slope-dependent errors.
 - Sentinel-1B stopped in December 2021, so later years have about half as many scenes per month. The model was trained on 2021.
-- Any place and any month from 2015 works if Earth Engine has radar there, but only 2021 can be checked against independent maps.
+- Any place and any month from 2015 works if Earth Engine has radar there. Independent maps: WorldCover for 2021 only, Esri annual land cover for 2017 to 2025 (2025 unconfirmed until you run it), none for 2026. Where none exists the check tab falls back to Dynamic World and says it is not independent.
 - Rural areas are covered by 15 test and train tiles; the rural score is lower than the city score (see report). Dry shrubland, bare mountains and snow are the weakest.
 """)

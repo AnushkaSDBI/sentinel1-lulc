@@ -1,22 +1,75 @@
-# SAR LULC: Sentinel-1-only land cover segmentation
+# SAR LULC: land cover maps from Sentinel-1 radar alone
 
-Course project (SRH, Data Engineering 1). Trains a segmentation model that uses
-Sentinel-1 as its only input, plus a prototype that turns a lat/lon and a start
-month into 12 monthly LULC maps with class percentages and change in
-percentage points.
+A U-Net that maps six land cover classes from Sentinel-1 radar only, and a Streamlit prototype that turns a latitude, longitude and
+start month into twelve monthly maps with class shares and change in percentage points.
+Course project, Deep Learning, SRH Hochschule Heidelberg, MSc Applied Data Science and AI (solo project).
 
-## Status
+The labels are annual, so the monthly maps have no ground truth. Their stability is tested on stable land instead (see Limits).
 
-- [x] Region config with leakage checks (`configs/regions.yaml`)
-- [x] 6-class scheme with Dynamic World and WorldCover mappings (tested)
-- [x] Month windows, class percentages and change in pp (tested)
-- [x] Earth Engine year statistics (`scripts/ee_year_stats.py`)
-- [x] Study year: 2021
-- [x] Grid and exporter (`src/lulc/grid.py`, `ee_export.py`, `scripts/export_dataset.py`), untested against live Earth Engine
-- [ ] Run the export and the alignment QA (`scripts/qa_overlay.py`)
-- [x] Patch index, model card, training math, Esri mapping (`patches.py`, `modelcard.py`, `train_math.py`; ideas from the reference repos, see `docs/REFERENCES.md`)
-- [ ] Export independent reference maps (`scripts/export_reference.py`)
-- [ ] Patch export, training, evaluation, prototype app
+## Results
+
+Test regions are never used for training or model selection. The shipped model is a 3-seed ensemble trained on 2021 to 2024 (21 regions) and
+tested on 39 held-out regions in 2025 and 2026 (January to October), so the test is held out in space and in time.
+Source of every number: `notebooks/report_stats.ipynb`, which writes `results/report_numbers.md`.
+
+| Test | Reference map | Pooled mIoU (95% interval over regions) |
+|---|---|---|
+| 2025, 39 unseen regions | Dynamic World 2025 | 0.540 (0.468 to 0.616) |
+| 2026, 39 unseen regions | Dynamic World 2026 | 0.557 (0.487 to 0.633) |
+| 2021, 26 unseen regions (model trained on 2021 only) | Dynamic World 2021 | 0.621 (0.540 to 0.674) |
+| 2021, same regions | Esri 2021 (independent) | 0.678 |
+
+Per-class IoU on the 2021 test: Water 0.908, Built-up 0.840, Cropland 0.586, Tree cover 0.531, Bare 0.478, Grass/shrub 0.381.
+Scores are over all labelled pixels. Some projects report only the pixels where two label products agree, which is easier;
+that row is also in `results/report_numbers.md` (`vs Dynamic World, only where WorldCover agrees`).
+
+![Heidelberg 2021 check against independent maps](docs/figures/heidelberg_2021_independent_check.png)
+
+## Deliverables
+
+| Item | Where |
+|---|---|
+| Report | `<ADD LINK>` |
+| Dataset (exported Sentinel-1 and labels) | `<ADD LINK>` |
+| Model weights (3 seeds) and `ood_reference.json` | `<ADD LINK>` |
+| Screen recording of the prototype on an urban area | `<ADD LINK>` |
+| Training and evaluation notebooks | `notebooks/` (see below) |
+| Prototype | `prototype/` |
+| Result files behind every number | `results/` |
+
+## Run it
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt && pip install -e .
+pytest -q                                    # 158 tests
+streamlit run prototype/app.py               # needs weights/ (see prototype/README.md) and an Earth Engine project
+```
+
+Reproduce the results (Colab or SRH Data Lab GPU), in this order:
+
+1. `notebooks/run_all_datalab.ipynb` (Colab: `run_all.ipynb`): export 2021, train V0 to V12, evaluate on 2021.
+2. `notebooks/multi_year.ipynb`: export 2022 to 2026, train on 2021 to 2024, test on 2025 and 2026.
+3. `python scripts/collect_results.py --runs <runs> <runs_multiyear> --out results`: copies the small result files (no weights).
+4. `notebooks/report_stats.ipynb`: builds every table and figure of the report from `results/`.
+
+`notebooks/eda.ipynb` is the data exploration; `notebooks/sharper_borders.ipynb` holds the border experiments; `notebooks/archive/` holds earlier notebooks.
+All settings are in `configs/` and all seeds are fixed. Earth Engine needs your own project ID in the environment variable `EE_PROJECT`; no ID or token is stored in the repo.
+
+## Limits
+
+- No monthly ground truth. I test stability on pixels both annual maps call stable: 2.83% of them change class between months in the raw maps and 1.22% after 3-month smoothing (Dynamic World itself: 6.79%).
+- 2025 and 2026 are scored against Dynamic World only, a model output with its own errors.
+- Weak classes: Grass/shrub, Bare, Cropland. Arid and cold regions score lowest (Sahel, Great Basin, Patagonia, Iceland, Tibet).
+- Borders are soft. The CRF, graph head, test-time augmentation and the full-resolution branch are implemented; read `results/report_numbers.md` for which of them were evaluated.
+
+## Related work and licence
+
+Ideas taken from other projects and papers are listed in `docs/REFERENCES.md`; no GPL code is copied (the DFC2020 baseline was used as reading only). MIT licence, see `LICENSE`.
+
+---
+
+# Pipeline details
 
 ## Data plan
 
@@ -130,11 +183,11 @@ V6 class-weight power 0.75 plus Lovasz loss, V7 speckle augmentation (multiplica
 V8 all three. `--exclude pampas nsw_pasture kenya_savanna mongolia_steppe arabia_desert` trains on the old regions, so the new
 tiles are a separate step: compare V2 with and without them, never V5-V8 on new data against the old V2.
 
-V9 regularisation bundle from repo B (dB shift 1.5, month dropout 0.15, window jitter 64 px, label smoothing 0.1, weight decay 0.05),
+V9 regularisation bundle (dB shift 1.5, month dropout 0.15, window jitter 64 px, label smoothing 0.1, weight decay 0.05),
 V10 label agreement filter (a training label is kept only where WorldCover agrees; needs `export_reference.py` for the train regions, and
 WorldCover stops being an independent check for that model). Validation decides; nothing is stacked on V2 without a result.
 
-New training tiles (southern hemisphere, steppe, desert; centres from the a reference implementation's region config) are in `regions.yaml`. Run
+New training tiles (southern hemisphere, steppe, desert;) are in `regions.yaml`. Run
 `ee_year_stats.py` on them before exporting. Climate groups (`climate_groups` in `regions.yaml`) are my own coarse assignment.
 `evaluate.py` also writes `per_climate.csv` and `ood_reference.json` (copy it into `weights/` for the prototype's area warning;
 it prints the rank correlation between confidence and mIoU, which says whether the warning is worth anything).
@@ -155,13 +208,12 @@ internet and `folium`, `streamlit-folium`, `plotly`; without them the app falls 
 
 `streamlit run prototype/app.py` (see `prototype/README.md`). Copy the chosen seed folders (`best.pt`, `model_card.json`) into `weights/`, plus `ood_reference.json` from `runs/eval_<variant>/` for the area warning.
 
-Not done: Heidelberg case study, and the Planetary Computer terrain-corrected comparison (only after the first model).
+Not done: the Planetary Computer terrain-corrected comparison.
 Deliberately not built: two-pass noise-floor estimate, per-scene standardisation, 50 m resolution, single-relative-orbit option, extra training years (only if the model overfits).
 
 ## Design decisions
 
-- Imagery year and label year must match. Candidate: 2021 (two Sentinel-1
-  satellites, and WorldCover 2021 matches in time).
+- Imagery year and label year must match. The first models use 2021, which is also the year of WorldCover and Esri. The shipped model trains on 2021 to 2024 and is tested on 2025 and 2026.
 - Splits are by city, never by patch. Boxes in different splits may not overlap.
 - Monthly change is computed on the pixels valid in all 12 months, so missing
   data cannot show up as land-use change (see `src/lulc/stats.py`).

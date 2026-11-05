@@ -271,7 +271,6 @@ def test_southern_hemisphere_and_highlight():
 
 
 def test_sampling_weights_balance_regions():
-    import numpy as np
     import pytest
     from lulc.train_math import sampling_weights
 

@@ -13,8 +13,7 @@ average the pairs per season of the first pass (winter DJF, spring MAM, summer J
 and write <data>/<region>/coherence_hyp3.npz with `coherence` (4, h/2, w/2) float16 and `factor` 2. Safe to rerun: jobs are
 found by name, so nothing is paid twice, and finished regions are skipped.
 
-Written from the asf_search 14.1 and hyp3_sdk 7.7 signatures (checked by importing them); the pair idea follows the public
-description in the reference implementation A report notes. No code was copied.
+Written from the asf_search 14.1 and hyp3_sdk 7.7 signatures (checked by importing them). No third-party code was copied.
 """
 from __future__ import annotations
 
@@ -25,7 +24,7 @@ import os
 import sys
 import time
 import zipfile
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -167,7 +166,7 @@ def main(argv=None) -> int:
         for k, p in plan.items():
             print(f"{k:24s} {len({b for b, *_ in p}):2d} bursts {len(p):4d} pairs")
         total = sum(len(p) for p in plan.values())
-        print(f"total {total} pairs. repo A's notes say 1 credit per pair (not stated in the HyP3 guide: check your credits first).")
+        print(f"total {total} pairs. estimate of 1 credit per pair (not stated in the HyP3 guide: check your credits first).")
         if a.action == "plan":
             return 0
         if total > a.max_pairs:

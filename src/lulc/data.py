@@ -165,7 +165,7 @@ def coherence_patch(coh: np.ndarray, row: int, col: int, patch: int, factor: int
 def apply_agree_filter(store: RegionStore, data_dir) -> int:
     """Keep a training label only where WorldCover 2021 gives the same class (needs reference.npz of the region).
 
-    Idea from reference implementations A and B (label quality filter, consensus labels). Training labels only: validation and
+    Label quality filter (consensus labels). Training labels only: validation and
     test labels are never filtered. After this, WorldCover is no longer an independent check for that model, so
     scores against it must be read as agreement with part of the training signal; use Esri instead.
     Returns the share of valid labels that were removed (0..1)."""

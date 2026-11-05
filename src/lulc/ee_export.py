@@ -162,7 +162,7 @@ class CompositeSettings:
 
     method       'median_db' (default): per-pixel median of the dB values.
                  'mean_linear': mean in linear power, then back to dB (classic
-                 temporal multilooking, idea from a reference implementation).
+                 temporal multilooking).
     angle_range  None (default) keeps all pixels. (lo, hi) masks pixels whose
                  incidence angle is outside the range, which removes the noisy
                  swath edges. The EE 'angle' band is a coarse (about 20 km)

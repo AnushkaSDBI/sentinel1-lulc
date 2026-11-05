@@ -10,6 +10,8 @@ Channel layout of the prepared input (see torch_data): for each month of the win
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -19,6 +21,9 @@ from .data import RegionStore
 from .metrics import ConfusionMatrix
 from .patches import window_starts
 from .torch_data import extra_patch, extra_spec, month_stack, prepare
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def channel_groups(window: int, spec) -> dict[str, list[int]]:
@@ -117,7 +122,7 @@ def ablation_confusions(models, store: RegionStore, norm: dict, window: int, dev
     return cms
 
 
-def ablation_table(pooled: dict, class_names) -> "pd.DataFrame":
+def ablation_table(pooled: dict, class_names) -> pd.DataFrame:
     """Rows = ablations; columns = mIoU, change in mIoU, change in IoU per class, hit hardest."""
     import pandas as pd
     base = pooled["full input"].iou()
