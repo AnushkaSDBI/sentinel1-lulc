@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
+from streamlit.components.v1 import html as components_html
 import torch
 try:                                   # basemap and charts; the app still runs without them (plain maps)
     import folium
@@ -421,11 +422,6 @@ if isinstance(place_disp, str) and "," in place_disp and all(c in "0123456789.,-
     la, lo = (float(x) for x in place_disp.split(","))
     nm = place_name(round(la, 4), round(lo, 4))
     place_disp = f"{nm}<br><span style='color:#8a929c;font-size:0.85rem'>{la:.3f}, {lo:.3f}</span>" if nm else f"{la:.3f}, {lo:.3f}"
-m1, m2, m3, m4 = st.columns(4)
-m1.markdown(metric_card("Place", place_disp), unsafe_allow_html=True)
-m2.markdown(metric_card("Period", fmt_period(labels)), unsafe_allow_html=True)
-m3.markdown(metric_card("Models in ensemble", res["k"]), unsafe_allow_html=True)
-m4.markdown(metric_card("Pixels used for change", f"{stats.valid_fraction.dropna().iloc[0] * 100:.0f}%"), unsafe_allow_html=True)
 missing = [proto.month_labels([res['ym'][i]])[0] for i in range(len(months)) if not store.s1[months[i], 0].any()]
 missing += proto.month_labels(res.get("absent", []))
 if missing:
@@ -474,6 +470,8 @@ def layer_overlay(layer, i, highlight, uncertain):
         return proto.overlay_rgba(since_first[i], CLASS_COLORS), f"Changed since {labels[first]} ({labels[i]})"
     if layer == "Change frequency (year)":
         return layers.frequency_rgba(n_switch), "Change frequency"
+    if layer == "Likely real change":
+        return proto.overlay_rgba(verdict["candidate"], CLASS_COLORS), "Likely real change"
     if layer == "Sentinel-1 VV (dB)":
         return layers.vv_rgba(store.s1[months[i]]), f"Sentinel-1 VV ({labels[i]})"
     img = (proto.highlight_rgba(preds[i], preds[i - 1], CLASS_COLORS, no_data="hatch", uncertain=uncertain) if highlight and i > 0
@@ -494,6 +492,10 @@ def layer_legend(layer, i):
         pct = 100 * float((since_first[i] != 255).sum()) / max(int((preds[first] != 255).sum()), 1)
         return (f"**Pixels whose class differs from {labels[first]}: {pct:.1f}%**, painted in their class of {labels[i]}. Unchanged pixels are transparent."
                 + legend_html())
+    if layer == "Likely real change":
+        return (f"**{verdict['text']}** Coloured pixels: the class they changed to. A pixel counts only if its most frequent class in the first "
+                "three months differs from the last three, and it sits in a patch of at least "
+                f"{verdict['min_px']} pixels. This is a candidate list, not proof: the monthly maps have no ground truth." + legend_html())
     if layer == "Model confidence":
         note = ("Share of the ensemble members that agree (a vote share, not a probability). This run was saved without the softmax confidence."
                 if conf_is_vote else "Mean softmax confidence of the ensemble before smoothing.")
@@ -511,34 +513,41 @@ def layer_legend(layer, i):
 ref_oa_map = res["reference"]["esri"] if res.get("reference") else None
 kp = layers.kpi_summary(preds, stats.percent, stats.total_change, scenes, conf_all,
                         proto.NOISE_FLOOR["flip_rate_smoothed_pct" if res["smooth"] else "flip_rate_raw_pct"], out["floor_net"], ref_oa_map)
-KPI_H = 170
+KPI_H = 190
 k = st.columns(5)
 k[0].metric("Months mapped", kp["months"]["value"], kp["months"]["note"], delta_color="off", delta_arrow="off", border=True, height=KPI_H,
-            chart_data=kp["months"]["series"], chart_type="bar", help="Months with Sentinel-1 data. Bars: scenes per month.")
+            chart_data=kp["months"]["series"], chart_type="bar", help=layers.KPI_HELP["Months mapped"])
 k[1].metric("Dominant class", kp["dominant"]["value"], kp["dominant"]["note"], delta_color="off", delta_arrow="off", border=True, height=KPI_H,
-            chart_data=kp["dominant"]["series"], help="Largest mean share over the months. Line: its share per month.")
+            chart_data=kp["dominant"]["series"], help=layers.KPI_HELP["Dominant class"])
 k[2].metric("Largest net change", kp["net"]["value"], kp["net"]["note"], delta_color="off", delta_arrow="off", border=True, height=KPI_H,
             chart_data=kp["net"]["series"],
-            help=f"Class whose share changed most from {labels[first]} to {labels[last]}. "
-                 + ("This is above the noise level." if kp["net"]["beyond_noise"] else "This is within the noise level, so it is not evidence of change."))
+            help=layers.KPI_HELP["Largest net change"] + (" Here it is above the noise level." if kp["net"]["beyond_noise"]
+                                                                  else " Here it is within the noise level, so it is not evidence of change."))
 k[3].metric("Monthly pixel change", kp["flip"]["value"], kp["flip"]["note"], delta_color="off", delta_arrow="off", border=True, height=KPI_H,
             chart_data=kp["flip"]["series"], chart_type="bar",
-            help="Mean share of pixels whose class differs from the previous month. On land that did not change the model already flips about "
-                 "the noise share, so only values well above it can be real change.")
+            help=layers.KPI_HELP["Monthly pixel change"])
 k[4].metric("Agreement with Esri" if ref_oa_map is not None else "Independent check", kp["agree"]["value"], kp["agree"]["note"],
             delta_color="off", delta_arrow="off", border=True, height=KPI_H, chart_data=kp["agree"]["series"],
-            help=("Overall agreement of the most frequent class with the independent Esri map of the same year. Line: mean confidence per month."
-                  if ref_oa_map is not None else "No independent map exists for this period (see the Validation tab). Line: mean confidence per month."))
+            help=layers.KPI_HELP["Agreement with Esri" if ref_oa_map is not None else "Independent check"])
+with st.expander("What do these five numbers mean?"):
+    for nm in ("Months mapped", "Dominant class", "Largest net change", "Monthly pixel change", "Agreement with Esri"):
+        st.markdown(f"**{nm}.** {layers.KPI_HELP[nm]}")
+    st.caption("Hover over the small question mark on a card for the same text. pp = percentage points of the area.")
 conf_name = "softmax confidence" if not conf_is_vote else "seed agreement (no softmax confidence saved in this run)"
-st.caption(f"{res['place'] if not str(res['place'])[:1].isdigit() else ''} {fmt_period(labels)} · {len(preds[0])} × {len(preds[0][0])} pixels of 10 m"
+st.caption(f"{place_disp.split('<br>')[0]} · {fmt_period(labels)} · {res['k']} model(s) in the ensemble · {stats.valid_fraction.dropna().iloc[0] * 100:.0f}% of pixels used for change · {len(preds[0])} × {len(preds[0][0])} pixels of 10 m"
            + (" · 3-month majority filter on" if res["smooth"] else "") + (" · test-time augmentation on" if res.get("tta") else "")
            + f" · confidence = {conf_name}")
 
-tab_map, tab_video, tab_share, tab_change, tab_check, tab_card = st.tabs(
-    ["Map viewer", "Monthly change", "Class statistics", "Change analysis", "Validation", "Model"])
-tab_cmp, tab_years, tab_info = tab_map, tab_change, tab_card
-
+verdict = layers.change_verdict(preds, noise_pct=proto.NOISE_FLOOR["flip_rate_smoothed_pct" if res["smooth"] else "flip_rate_raw_pct"])
+tab_map, tab_change_all, tab_share, tab_check, tab_card = st.tabs(
+    ["Map viewer", "Change", "Class statistics", "Validation (independent maps)", "Model and limits"])
 with tab_map:
+    m_single, tab_cmp = st.tabs(["Map", "Compare two maps"])
+with tab_change_all:
+    tab_video, c_month, tab_change, tab_years = st.tabs(["Play the change", "Month by month", "First to last month", "Over the years"])
+tab_info = tab_card
+
+with m_single:
     bounds = res.get("bounds")
     disagree = out["disagree"]
     c_ctrl, c_map = st.columns([1, 3], gap="large")
@@ -546,7 +555,7 @@ with tab_map:
         layer = st.radio("Layer", layers.LAYER_NAMES, key="layer",
                          help="Land cover is the model output. The others are views of the same maps, or the radar itself.")
         i = st.select_slider("Month", options=list(range(len(labels))), format_func=lambda k: labels[k], key="month",
-                             disabled=layer in ("12-month majority", "Change frequency (year)") or len(labels) == 1)
+                             disabled=layer in ("12-month majority", "Change frequency (year)", "Likely real change") or len(labels) == 1)
         alpha = st.slider("Opacity", 0.0, 1.0, 0.8, 0.05)
         satellite = st.radio("Basemap", ["Satellite photo", "Street map"], horizontal=True) == "Satellite photo"
         grey = st.checkbox("Grey out pixels where the seeds disagree", False, disabled=disagree is None,
@@ -627,28 +636,38 @@ with tab_map:
                 st.info(f"GeoTIFF export needs rasterio, which cannot be loaded here: {e}")
 
 with tab_video:
-    st.subheader("Month-by-month video")
     if len(labels) < 2:
-        st.info("A video needs at least two months with radar.")
+        st.info("Playing the change needs at least two months with radar.")
     else:
-        c1, c2, c3 = st.columns([2, 2, 2])
-        vmode = c1.radio("Show", ["Land cover", "Changes"], horizontal=True, key="vid_mode",
-                         help="Land cover paints every class. Changes shows only pixels that differ from the previous month.")
-        fps = c2.slider("Speed (months per second)", 0.5, 6.0, 2.0, 0.5, key="vid_fps")
-        vsize = c3.radio("Size", ["Small", "Large"], horizontal=True, key="vid_size")
+        st.markdown(f"**{verdict['text']}**")
+        st.caption("Press Play to watch the months. Switch to Changed pixels to see only what differs from the step before. "
+                   "Most flicker you see is model noise and seasonal radar effects, not land-use change.")
+        yr_state = st.session_state.get("years_res")
+        seqs = {}
 
-        @st.cache_data(show_spinner="Rendering the video ...", max_entries=6)
-        def _gif(key, mode, speed, size):
-            return layers.animation_gif(preds, labels, CLASS_COLORS, mode=mode, fps=speed, max_side=480 if size == "Small" else 800)
+        @st.cache_data(show_spinner="Preparing the player ...", max_entries=4)
+        def _seq(key, maps, lbls):
+            return layers.build_sequence(list(maps), list(lbls), CLASS_COLORS)
 
-        gif = _gif((res["place"], tuple(labels), bool(res["smooth"]), preds.shape, int(preds.sum() % 100003)), vmode, fps, vsize)
-        st.image(gif, caption=f"{labels[0]} to {labels[-1]}, {fps:g} months per second. The video loops.", output_format="GIF")
-        st.download_button("Download video (GIF)", gif, f"lulc_{_slug(res['place'])}_{vmode.lower().replace(' ', '_')}.gif", "image/gif")
-        flips = [100 * float(((preds[k] != preds[k - 1]) & (preds[k] != 255) & (preds[k - 1] != 255)).sum()) / max(int(((preds[k] != 255) & (preds[k - 1] != 255)).sum()), 1)
-                 for k in range(1, len(preds))]
-        st.caption("In Changes mode most coloured pixels flicker on and off from month to month. That is the model's noise and seasonal radar effects, "
-                   f"not land-use change: on average {np.mean(flips):.1f}% of the pixels switch class between consecutive months here. "
-                   "The labels are annual, so no month has ground truth.")
+        seqs["Month by month"] = _seq((str(res["place"]), tuple(labels), bool(res["smooth"]), int(preds.sum() % 100003)), tuple(preds), tuple(labels))
+        if yr_state and len(yr_state["summ"]["maps"]) >= 2:
+            ys_p = sorted(yr_state["summ"]["maps"])
+            seqs["Year on year"] = _seq(("years", str(yr_state["place"]), tuple(ys_p), int(sum(int(yr_state["summ"]["maps"][y].sum()) for y in ys_p) % 100003)),
+                                        tuple(yr_state["summ"]["maps"][y] for y in ys_p), tuple(str(y) for y in ys_p))
+        components_html(layers.player_html(seqs, CLASS_COLORS, CLASS_NAMES), height=690, scrolling=False)
+        if "Year on year" not in seqs:
+            st.caption("Year on year needs two or more years. Run them under Over the years, and the Step switch appears here.")
+        with st.expander("Download the animation as a GIF"):
+            g1, g2 = st.columns(2)
+            vmode = g1.radio("Show", ["Land cover", "Changes"], horizontal=True, key="vid_mode")
+            fps = g2.slider("Speed (months per second)", 0.5, 6.0, 2.0, 0.5, key="vid_fps")
+
+            @st.cache_data(show_spinner="Rendering the GIF ...", max_entries=4)
+            def _gif(key, mode, speed):
+                return layers.animation_gif(preds, labels, CLASS_COLORS, mode=mode, fps=speed, max_side=480)
+
+            gif = _gif((res["place"], tuple(labels), bool(res["smooth"]), preds.shape, int(preds.sum() % 100003)), vmode, fps)
+            st.download_button("Download GIF", gif, f"lulc_{_slug(res['place'])}_{vmode.lower().replace(' ', '_')}.gif", "image/gif")
 
 with tab_cmp:
     st.subheader("Compare two maps")
@@ -753,8 +772,7 @@ with tab_share:
         "noise_floor": proto.NOISE_FLOOR,
         "caveat": "Labels are annual, so the monthly maps have no ground truth."}, indent=2), "run_report.json", "application/json")
 
-with tab_video:
-    st.divider()
+with c_month:
     floor = out["floor"]
     st.subheader("Month-to-month change (percentage points)")
     steps = stats.delta.iloc[1:].round(2).copy()
@@ -1029,7 +1047,7 @@ Smoothing replaces each month's class with the majority over the month and its t
 - The area check compares mean confidence and seed disagreement with a few held-out test regions. It is a coarse flag, not a
   probability of being wrong, and it only exists when `ood_reference.json` is in the weights folder.
 - No radiometric terrain flattening: hilly areas carry slope-dependent errors.
-- Sentinel-1B stopped in December 2021, so later years have about half as many scenes per month. The model was trained on 2021.
+- Sentinel-1B stopped in December 2021, so later years have about half as many scenes per month.
 - Any place and any month from 2015 works if Earth Engine has radar there. Independent maps: WorldCover for 2021 only, Esri annual land cover for 2017 to 2025 (2025 unconfirmed until you run it), none for 2026. Where none exists the check tab falls back to Dynamic World and says it is not independent.
 - Rural areas are covered by 15 test and train tiles; the rural score is lower than the city score (see report). Dry shrubland, bare mountains and snow are the weakest.
 """)

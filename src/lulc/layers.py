@@ -21,7 +21,7 @@ FREQ_CAPTION = ("Counts how often a pixel switches class between consecutive mon
                 "radar effect (soil moisture, snow, harvest, speckle), not real land-use change. Sentinel-1 VV, no ground truth.")
 
 LAYER_NAMES = ["Land cover", "12-month majority", "Model confidence", "Change since first month",
-               "Change frequency (year)", "Sentinel-1 VV (dB)"]
+               "Change frequency (year)", "Likely real change", "Sentinel-1 VV (dB)"]
 
 
 def _hex_rgb(c: str) -> tuple[int, int, int]:
@@ -290,15 +290,15 @@ def kpi_summary(preds, percent, total_change, scenes, conf, flip_noise_pct: floa
     mean_conf = np.array([np.nan if not has[t] else float(np.nanmean(conf[t])) for t in range(len(preds))])
     return {
         "months": {"value": f"{sum(has)}/{len(preds)}",
-                   "note": (f"median {np.nanmedian(sc):.0f} scenes per month" if np.isfinite(sc).any() else "scene counts not available"),
+                   "note": (f"median {np.nanmedian(sc):.0f} scenes" if np.isfinite(sc).any() else "no scene counts"),
                    "series": [0.0 if not np.isfinite(x) else float(x) for x in sc]},
         "dominant": {"value": dom, "note": f"{mean_share[dom]:.1f}% of the area", "series": [float(x) for x in percent[dom].fillna(0)]},
-        "net": {"value": big, "note": f"{total_change[big]:+.2f} pp (noise about {net_noise_pp:g} pp in total)",
+        "net": {"value": big, "note": f"{total_change[big]:+.1f} pp, noise ±{net_noise_pp:g}",
                 "series": [float(x) for x in percent[big].fillna(0)], "beyond_noise": bool(abs(total_change[big]) > net_noise_pp)},
         "flip": {"value": "n/a" if not np.isfinite(flips).any() else f"{np.nanmean(flips):.1f}%",
-                 "note": f"model noise {flip_noise_pct:g}%", "series": [0.0 if not np.isfinite(x) else float(x) for x in flips[1:]]},
+                 "note": f"noise {flip_noise_pct:g}%", "series": [0.0 if not np.isfinite(x) else float(x) for x in flips[1:]]},
         "agree": {"value": "–" if ref is None else f"{agreement_pct(preds, ref):.1f}%",
-                  "note": f"mean confidence {100 * np.nanmean(mean_conf):.0f}%",
+                  "note": f"confidence {100 * np.nanmean(mean_conf):.0f}%",
                   "series": [0.0 if not np.isfinite(x) else float(100 * x) for x in mean_conf]},
     }
 
@@ -315,3 +315,180 @@ def sankey_data(a, b, ignore: int = IGNORE_INDEX, min_share: float = 0.0) -> dic
             if cm[i, j] > min_share:
                 src.append(i); tgt.append(n + j); val.append(float(cm[i, j]))
     return {"labels": [f"{c} (first)" for c in CLASS_NAMES] + [f"{c} (last)" for c in CLASS_NAMES], "source": src, "target": tgt, "value": val}
+
+
+# ------------------------------------------------------------------ change verdict (is the change real?)
+def persistent_change(preds, k: int = 3, ignore: int = IGNORE_INDEX) -> np.ndarray:
+    """Class of the last k months where it differs from the class of the first k months, ignore elsewhere. (T,H,W) -> (H,W).
+
+    Comparing the most frequent class of the first and the last quarter removes most seasonal flicker: a pixel has to
+    look different for several months, not one."""
+    preds = np.asarray(preds)
+    k = max(1, min(k, len(preds) // 2))
+    a, b = majority_map(preds[:k], ignore), majority_map(preds[-k:], ignore)
+    out = b.copy()
+    out[(a == b) | (a == ignore) | (b == ignore)] = ignore
+    return out
+
+
+def compact_patches(mask, min_px: int = 30) -> np.ndarray:
+    """Keep only the connected groups (8-neighbours) of True pixels that hold at least min_px pixels. 30 px at 10 m is 0.3 ha."""
+    from scipy.ndimage import label
+    mask = np.asarray(mask, bool)
+    lab, n = label(mask, structure=np.ones((3, 3)))
+    if n == 0:
+        return mask
+    sizes = np.bincount(lab.ravel())
+    keep = sizes >= min_px
+    keep[0] = False
+    return keep[lab]
+
+
+def change_verdict(preds, min_px: int = 30, noise_pct: float = 1.2, ignore: int = IGNORE_INDEX) -> dict:
+    """Plain answer to "did this place change?". Candidates are persistent changes that form compact patches.
+
+    There is no ground truth for the months, so this is a candidate list, not a measurement. Returns the candidate mask,
+    the class of the candidates, the share of valid area that changed persistently, and the share that is a candidate."""
+    preds = np.asarray(preds)
+    pers = persistent_change(preds, ignore=ignore)
+    changed = pers != ignore
+    valid = (majority_map(preds[:3], ignore) != ignore) & (majority_map(preds[-3:], ignore) != ignore)
+    n_valid = max(int(valid.sum()), 1)
+    cand_mask = compact_patches(changed, min_px)
+    changed_pct = 100 * float(changed.sum()) / n_valid
+    cand_pct = 100 * float(cand_mask.sum()) / n_valid
+    if cand_pct < 0.5:
+        level, text = "none", f"No sign of real change. {changed_pct:.1f}% of the area looks different at the end, scattered in small spots, which is what noise looks like."
+    elif cand_pct < 3:
+        level, text = "small", f"Small candidate change: {cand_pct:.1f}% of the area changed class in compact patches. Check these patches on the satellite photo."
+    else:
+        level, text = "likely", f"Candidate change: {cand_pct:.1f}% of the area changed class in compact patches of at least {min_px} pixels. Check them on the satellite photo before calling it change."
+    cand = np.where(cand_mask, pers, ignore).astype(np.uint8)
+    return {"level": level, "text": text, "changed_pct": changed_pct, "candidate_pct": cand_pct, "candidate": cand,
+            "scattered_pct": changed_pct - cand_pct, "min_px": min_px}
+
+
+# ------------------------------------------------------------------ player (play / pause / speed), plain HTML + JS
+KPI_HELP = {
+    "Months mapped": ("How many of the months have radar data. The bars show the Sentinel-1 scenes behind each month. "
+                      "Fewer scenes mean a noisier map for that month."),
+    "Dominant class": "The class that covers the most area on average. The line shows its share month by month.",
+    "Largest net change": ("The class whose share of the area moved most between the first and the last month, in percentage points (pp). "
+                           "If it is smaller than the noise value in brackets, treat it as no change."),
+    "Monthly pixel change": ("On average, the share of pixels that switch class from one month to the next. On land that did not change, "
+                             "our model already switches about the 'model noise' share, so only values well above it can be real."),
+    "Agreement with Esri": ("How often our map agrees with the independent Esri map of the same year, pixel by pixel. "
+                            "The two use different class definitions, so 100% is not reachable. The line shows model confidence per month."),
+    "Independent check": ("No independent map exists for this period, so there is no agreement number. "
+                          "The line shows model confidence per month."),
+}
+
+
+def _png_uri(rgb: np.ndarray) -> str:
+    import base64
+
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.fromarray(np.asarray(rgb, np.uint8)).save(buf, format="PNG", optimize=True)
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def map_frame(pred, prev, colors, mode: str, max_side: int = 520, no_data=(205, 205, 205)) -> str:
+    """One map as a PNG data URI. mode "Land cover" paints every class; "Changed pixels" paints only the pixels whose class differs from prev
+    (the rest light grey)."""
+    from PIL import Image
+
+    from .proto import overlay_rgba
+    pred = np.asarray(pred)
+    rgba = overlay_rgba(pred, colors)
+    if mode == "Changed pixels":
+        same = np.ones(pred.shape, bool) if prev is None else ((pred == np.asarray(prev)) | (np.asarray(prev) == IGNORE_INDEX) | (pred == IGNORE_INDEX))
+        rgba[same] = (230, 230, 230, 255)
+    rgba[pred == IGNORE_INDEX] = (*no_data, 255)
+    img = Image.fromarray(rgba[..., :3])
+    scale = max(1, max_side // max(img.size))
+    if scale > 1:
+        img = img.resize((img.width * scale, img.height * scale), Image.NEAREST)
+    return _png_uri(np.asarray(img))
+
+
+def build_sequence(maps, labels, colors, ignore: int = IGNORE_INDEX) -> dict:
+    """Frames for one sequence (months or years): both modes plus a caption per frame with the share of pixels that changed."""
+    maps = [np.asarray(m) for m in maps]
+    cap = []
+    for k, m in enumerate(maps):
+        if k == 0:
+            cap.append("First map: nothing to compare with yet.")
+            continue
+        both = (m != ignore) & (maps[k - 1] != ignore)
+        pct = 100 * float(((m != maps[k - 1]) & both).sum()) / max(int(both.sum()), 1) if both.any() else float("nan")
+        cap.append("No radar in one of the two months." if not np.isfinite(pct) else f"{pct:.1f}% of the pixels changed class since {labels[k - 1]}.")
+    return {"labels": list(labels), "caption": cap,
+            "frames": {"Land cover": [map_frame(m, None, colors, "Land cover") for m in maps],
+                       "Changed pixels": [map_frame(m, None if k == 0 else maps[k - 1], colors, "Changed pixels") for k, m in enumerate(maps)]}}
+
+
+def player_html(sequences: dict, colors, names, start_speed: float = 1.0) -> str:
+    """Self-contained player: Play / Pause, speed, a slider, a switch between land cover and changed pixels, and (with more than one
+    sequence) a switch between month by month and year on year. Starts paused. sequences: {name: build_sequence(...)}."""
+    import json
+    data = json.dumps({"seq": sequences, "colors": list(colors), "names": list(names), "speed": start_speed})
+    return _PLAYER_TEMPLATE.replace("__DATA__", data)
+
+
+_PLAYER_TEMPLATE = """<!doctype html><meta charset="utf-8">
+<style>
+ body{margin:0;font:14px/1.4 system-ui,-apple-system,Segoe UI,sans-serif;color:#222;background:#fff}
+ .wrap{border:1px solid #d0d0d0;border-radius:10px;padding:12px;max-width:760px}
+ .bar{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-bottom:10px}
+ button,select{font:inherit;padding:5px 10px;border:1px solid #9a9a9a;border-radius:6px;background:#f6f6f6;color:#222;cursor:pointer}
+ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid #222;outline-offset:2px}
+ #play{min-width:92px;font-weight:600}
+ .seg button{border-radius:0;margin-left:-1px}.seg button:first-child{border-radius:6px 0 0 6px;margin-left:0}.seg button:last-child{border-radius:0 6px 6px 0}
+ .seg button[aria-pressed=true]{background:#222;color:#fff;border-color:#222}
+ #img{display:block;width:100%;max-width:520px;image-rendering:pixelated;image-rendering:crisp-edges;border:1px solid #ccc}
+ #sl{width:100%;max-width:520px;margin:8px 0 2px}
+ #lab{font-weight:600;font-size:16px}#cap{color:#555;min-height:20px}
+ .leg{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px;font-size:12px}
+ .leg span{display:inline-flex;align-items:center;gap:5px}.leg i{width:13px;height:13px;border:1px solid #888;border-radius:3px;display:inline-block}
+</style>
+<div class="wrap">
+ <div class="bar">
+  <button id="play" aria-label="Play or pause">&#9654; Play</button>
+  <label>Speed <select id="spd"><option value="0.5">0.5x</option><option value="1">1x</option><option value="2">2x</option><option value="4">4x</option></select></label>
+  <span id="seqw"><label>Step <select id="seq"></select></label></span>
+  <span class="seg" id="modes" role="group" aria-label="What to show"><button data-m="Land cover" aria-pressed="true">Land cover</button><button data-m="Changed pixels" aria-pressed="false">Changed pixels</button></span>
+ </div>
+ <img id="img" alt="Land cover map">
+ <input id="sl" type="range" min="0" value="0" aria-label="Frame">
+ <div id="lab"></div><div id="cap"></div><div class="leg" id="leg"></div>
+</div>
+<script>
+const D = __DATA__;
+const $ = id => document.getElementById(id);
+let seq = Object.keys(D.seq)[0], mode = "Land cover", idx = 0, timer = null;
+const spd = $("spd"); spd.value = String(D.speed);
+Object.keys(D.seq).forEach(k => { const o = document.createElement("option"); o.value = o.textContent = k; $("seq").appendChild(o); });
+if (Object.keys(D.seq).length < 2) $("seqw").style.display = "none";
+$("leg").innerHTML = D.names.map((n, i) => `<span><i style="background:${D.colors[i]}"></i>${n}</span>`).join("")
+  + `<span><i style="background:#cdcdcd"></i>no radar / unchanged</span>`;
+function draw() {
+  const s = D.seq[seq]; $("sl").max = s.labels.length - 1; idx = Math.min(idx, s.labels.length - 1); $("sl").value = idx;
+  $("img").src = s.frames[mode][idx]; $("img").alt = mode + ", " + s.labels[idx];
+  $("lab").textContent = s.labels[idx]; $("cap").textContent = s.caption[idx];
+}
+function step() { const n = D.seq[seq].labels.length; idx = (idx + 1) % n; draw(); }
+function setPlaying(on) {
+  clearInterval(timer); timer = null;
+  if (on) timer = setInterval(step, 1000 / parseFloat(spd.value));
+  $("play").innerHTML = on ? "&#10074;&#10074; Pause" : "&#9654; Play";
+}
+$("play").onclick = () => setPlaying(timer === null);
+spd.onchange = () => { if (timer !== null) setPlaying(true); };
+$("sl").oninput = e => { idx = parseInt(e.target.value); draw(); };
+$("seq").onchange = e => { seq = e.target.value; idx = 0; draw(); };
+document.querySelectorAll("#modes button").forEach(b => b.onclick = () => {
+  mode = b.dataset.m; document.querySelectorAll("#modes button").forEach(x => x.setAttribute("aria-pressed", x === b)); draw();
+});
+draw();
+</script>"""

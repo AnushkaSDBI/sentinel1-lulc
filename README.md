@@ -16,7 +16,7 @@ Source of every number: `notebooks/report_stats.ipynb`, which writes `results/re
 |---|---|---|
 | 2025, 39 unseen regions | Dynamic World 2025 | 0.540 (0.468 to 0.616) |
 | 2026, 39 unseen regions | Dynamic World 2026 | 0.557 (0.487 to 0.633) |
-| 2021, 26 unseen regions (model trained on 2021 only) | Dynamic World 2021 | 0.621 (0.540 to 0.674) |
+| 2021, 26 unseen regions | Dynamic World 2021 | 0.621 (0.540 to 0.674) |
 | 2021, same regions | Esri 2021 (independent) | 0.678 |
 
 Per-class IoU on the 2021 test: Water 0.908, Built-up 0.840, Cropland 0.586, Tree cover 0.531, Bare 0.478, Grass/shrub 0.381.
