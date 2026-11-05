@@ -147,6 +147,21 @@ def window_months(month: int, window: int, n: int = N_MONTHS) -> list[int]:
     return [min(max(month + d, 0), n - 1) for d in range(-half, half + 1)]
 
 
+def fill_window_gaps(stack: np.ndarray) -> np.ndarray:
+    """uint8 codes (W,2,H,W) of a centred window -> a copy where a no-data neighbour (code 0) takes the value of the next month towards the centre.
+
+    Same idea as the year ends in window_months, so December of a year with no November yet looks like December of a full
+    year. Used at inference: a month that has not happened yet would otherwise reach the model as a blank input, which it
+    rarely saw in training. The centre month is never changed, so its no-data pixels stay no-data."""
+    out = stack.copy()
+    c = out.shape[0] // 2
+    for order, step in ((range(c + 1, out.shape[0]), -1), (range(c - 1, -1, -1), 1)):
+        for i in order:
+            gap = out[i] == 0
+            out[i][gap] = out[i + step][gap]
+    return out
+
+
 def coherence_patch(coh: np.ndarray, row: int, col: int, patch: int, factor: int = 10) -> np.ndarray:
     """Cut a patch from the coarse coherence array and upsample it (nearest) to the 10 m grid."""
     r0, c0 = row // factor, col // factor

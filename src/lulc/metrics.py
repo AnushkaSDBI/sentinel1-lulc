@@ -14,7 +14,27 @@ from __future__ import annotations
 
 import numpy as np
 
-from .classes import IGNORE_INDEX
+from .classes import IGNORE_INDEX, N_CLASSES
+
+
+def tolerant_target(pred: np.ndarray, label: np.ndarray, *others: np.ndarray, ignore: int = IGNORE_INDEX) -> np.ndarray:
+    """Reference for the tolerant score: `pred` where it matches `label` or any map in `others`, otherwise `label`.
+
+    Scored on the pixels `label` has. It flatters any model, so it bounds how much of the error is the maps disagreeing;
+    report it next to the normal score, never instead of it."""
+    match = np.zeros(np.shape(label), bool)
+    for ref in (label, *others):
+        match |= pred == ref
+    return np.where(match & (label != ignore), pred, label)
+
+
+def map_agreement_counts(label: np.ndarray, wc: np.ndarray, esri: np.ndarray, n_classes: int = N_CLASSES) -> np.ndarray:
+    """Per class of `label`: pixels, and how many of them WorldCover, Esri, and both give the same class. Shape (C,4)."""
+    out = np.zeros((n_classes, 4), np.int64)
+    for c in range(n_classes):
+        here = label == c
+        out[c] = here.sum(), (here & (wc == c)).sum(), (here & (esri == c)).sum(), (here & (wc == c) & (esri == c)).sum()
+    return out
 
 
 class ConfusionMatrix:

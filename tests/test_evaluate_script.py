@@ -90,3 +90,41 @@ def test_evaluate_with_stats_model(tmp_path, capsys):
     with pytest.raises(SystemExit):
         evaluate.main(["--data", str(tmp_path / "raw"), "--runs", str(tmp_path / "runs"), "--variant", "VX", "--config", str(yml),
                        "--patch", "32", "--overlap", "32"])
+
+
+def test_tolerant_score_and_map_agreement(tmp_path, capsys):
+    from lulc.classes import IGNORE_INDEX
+    from lulc.metrics import ConfusionMatrix, map_agreement_counts, tolerant_target
+    # a pixel per case: matches label, matches the other map only, matches nothing, label missing
+    pred = np.array([1, 2, 3, 4], np.uint8)
+    label = np.array([1, 0, 0, IGNORE_INDEX], np.uint8)
+    other = np.array([0, 2, 5, 4], np.uint8)
+    tol = tolerant_target(pred, label, other)
+    assert tol.tolist() == [1, 2, 0, IGNORE_INDEX]
+    plain, tolerant = ConfusionMatrix(6), ConfusionMatrix(6)
+    plain.update(pred, label); tolerant.update(pred, tol)
+    assert plain.oa == pytest.approx(1 / 3) and tolerant.oa == pytest.approx(2 / 3)
+    c = map_agreement_counts(np.array([1, 1, 1, 2, IGNORE_INDEX], np.uint8), np.array([1, 1, 0, 2, 1], np.uint8), np.array([1, 0, 0, 0, 1], np.uint8))
+    assert c[1].tolist() == [3, 2, 1, 1] and c[2].tolist() == [1, 1, 0, 0] and c[0].sum() == 0
+
+    # end to end: three reference maps of the label year give the tolerant row, the agreement table and the fill switch
+    for k, s in (("a", 0), ("v", 2), ("t1", 3)):
+        _make(tmp_path / "raw", k, s)
+    tr = {"a": load_store(tmp_path / "raw", "a", "train", stats=True)}
+    va = {"v": load_store(tmp_path / "raw", "v", "val", stats=True)}
+    run(dict(patch=32, epochs=1, epoch_samples=16, batch=8, workers=0, val_patches=4, amp=False, encoder="resnet18", lr=2e-3, window=3, yearly_stats=True, seed=0),
+        tr, va, tmp_path / "runs" / "VX" / "seed0", device=torch.device("cpu"), log=lambda *_: None)
+    np.savez(tmp_path / "raw" / "t1" / "reference.npz", wc=np.full((96, 96), 10, np.uint8), esri=np.full((96, 96), 2, np.uint8))
+    yml = tmp_path / "regions.yaml"
+    yml.write_text("year: 2021\nhalf_size_km: 12\nregions:\n  t1: {name: t1, lat: 10, lon: 10, split: test, half_size_km: 12}\n")
+    import evaluate
+    base = ["--data", str(tmp_path / "raw"), "--runs", str(tmp_path / "runs"), "--variant", "VX", "--config", str(yml), "--splits", "test", "--esri-scheme", "original"]
+    assert evaluate.main(base) == 0
+    printed = capsys.readouterr().out
+    assert "fill gaps True" in printed and "tolerant" in printed
+    out = tmp_path / "runs" / "eval_VX"
+    m = json.loads((out / "metrics.json").read_text())
+    assert m["tolerant"]["oa"] >= m["dw"]["oa"]
+    assert "both_agree_%" in (out / "map_agreement.csv").read_text()
+    assert evaluate.main([*base, "--no-fill-gaps", "--tag", "_blank"]) == 0
+    assert "fill gaps False" in capsys.readouterr().out
