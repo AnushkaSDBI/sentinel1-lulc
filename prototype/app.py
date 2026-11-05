@@ -38,20 +38,13 @@ from lulc.ood import area_signature, ood_check
 from lulc.quant import dequantize_db
 
 st.set_page_config(page_title="Sentinel-1 land cover", layout="wide")
-CMAP = ListedColormap(["#000000", *CLASS_COLORS])           # 0 = no data, 1..6 = classes
-LEGEND = [Patch(color="#000000", label="no data"), *[Patch(color=c, label=n) for c, n in zip(CLASS_COLORS, CLASS_NAMES)]]
+NO_DATA_COLOR = "#969696"                                   # mid grey: Built-up is dark grey and Bare near-white
+CMAP = ListedColormap([NO_DATA_COLOR, *CLASS_COLORS])       # 0 = no data, 1..6 = classes
+LEGEND = [Patch(color=NO_DATA_COLOR, label="no radar"), *[Patch(color=c, label=n) for c, n in zip(CLASS_COLORS, CLASS_NAMES)]]
 SIZES = {"2.56 km": 2.56, "5.12 km (default)": 5.12, "10.24 km (slow)": 10.24}
 CACHE = ROOT / ".cache_lulc"
 SAVED = ROOT / "saved_runs"            # pre-computed runs, so a demo replays instantly with no Earth Engine and never fails live
-DEMOS = {                              # places that show strong seasonal change (check each on satellite before recording)
-    "Heidelberg, Germany (city)": (49.40, 8.67, 2021, 1),
-    "Tonle Sap, Cambodia (seasonal lake)": (13.00, 104.05, 2021, 1),
-    "Inner Niger delta, Mali (flood plain)": (15.20, -4.20, 2021, 1),
-    "Gezira, Sudan (irrigated crops)": (14.40, 33.30, 2021, 1),
-    "Poyang Lake, China (seasonal lake)": (29.10, 116.25, 2021, 1),
-    "Punjab, India (double-cropped fields)": (30.90, 75.80, 2021, 1),
-    "Control: Munich, Germany (built-up city, should NOT change)": (48.14, 11.58, 2021, 1),   # check on satellite view before recording
-}
+DEMOS = proto.DEMOS
 CONTROL_NOTE = ("Control run: this is a large built-up area where the land cover should stay the same all year. "
                 "Whatever change the maps show here is false change (speckle, seasons, model error), so it is the noise level "
                 "to compare every other place against.")
@@ -62,12 +55,12 @@ def _slug(s):
 
 
 def save_run(res):
-    try:
-        SAVED.mkdir(exist_ok=True)
-        with gzip.open(SAVED / f"{_slug(res['place'] + ' ' + res['labels'][0])}.pkl.gz", "wb") as f:   # the same place in another period gets its own file
-            pickle.dump(res, f)
-    except Exception:
-        pass
+    """Keep a run for offline replay. Returns the file name, or raises: a demo that relies on this must know if it failed."""
+    SAVED.mkdir(exist_ok=True)
+    path = SAVED / f"{_slug(res['place'] + ' ' + res['labels'][0])}.pkl.gz"    # the same place in another period gets its own file
+    with gzip.open(path, "wb") as f:
+        pickle.dump(res, f)
+    return path.name
 
 
 def list_saved():
@@ -103,12 +96,26 @@ LEGEND_HINT = {"Tree cover": "forest, plantation", "Grass/shrub": "grass, scrub,
                "Built-up": "towns, roads, buildings", "Bare": "sand, rock, soil", "Water": "rivers, lakes, sea"}
 
 
-def legend_html():
-    chips = "".join(
-        f'<span style="display:inline-flex;align-items:center;margin:2px 14px 2px 0;font-size:0.9rem">'
-        f'<span style="width:16px;height:16px;border-radius:3px;background:{c};border:1px solid #888;margin-right:6px"></span>'
-        f'<b>{n}</b>&nbsp;<span style="color:#999;font-size:0.8rem">{LEGEND_HINT.get(n, "")}</span></span>'
-        for c, n in zip(CLASS_COLORS, CLASS_NAMES))
+def legend_html(shares=None, after=None, seeds=False):
+    """Class chips. shares: % per class of the month on the map; after: of a second month, shown as "before → after"."""
+    def chip(bg, name, note):
+        return (f'<span style="display:inline-flex;align-items:center;margin:2px 14px 2px 0;font-size:0.9rem">'
+                f'<span style="width:16px;height:16px;border-radius:3px;background:{bg};border:1px solid #888;margin-right:6px"></span>'
+                f'<b>{name}</b>&nbsp;<span style="color:#999;font-size:0.8rem">{note}</span></span>')
+
+    def pct(s, n):
+        return "no radar" if pd.isna(s[n]) else f"{s[n]:.1f}%"
+
+    chips = ""
+    for c, n in zip(CLASS_COLORS, CLASS_NAMES):
+        if shares is None:
+            note = LEGEND_HINT.get(n, "")
+        else:
+            note = pct(shares, n) if after is None else f"{pct(shares, n)} → {pct(after, n)}"
+        chips += chip(c, n, note)
+    chips += chip("repeating-linear-gradient(45deg,#c8c8c8 0 3px,#191919 3px 6px)", "No radar", "no class shown")
+    if seeds:
+        chips += chip("#969696", "Seeds disagree", "class hidden")
     return f'<div style="display:flex;flex-wrap:wrap;line-height:1.6">{chips}</div>'
 
 
@@ -123,9 +130,8 @@ def fmt_period(labels):
     return f"{ma}–{mb} {ya}" if ya == yb else f"{a} – {b}"
 
 
-def class_rgb(pred, ignore: int = 255):
-    pal = np.array([[int(c[i:i + 2], 16) for i in (1, 3, 5)] for c in CLASS_COLORS] + [[18, 20, 24]], np.uint8)
-    return pal[np.where(pred == ignore, len(CLASS_COLORS), pred)]
+def class_rgb(pred, uncertain=None):
+    return proto.overlay_rgba(pred, CLASS_COLORS, no_data="hatch", uncertain=uncertain)[..., :3]
 
 
 @st.cache_data(show_spinner=False)
@@ -157,6 +163,72 @@ def base_map(bounds, satellite: bool):
     m.add_child(MeasureControl(primary_length_unit="kilometers"))
     m.fit_bounds(bounds)
     return m
+
+
+def swipe_map_html(bounds, before, after, opacity, before_name, after_name) -> str:
+    """Satellite basemap with two class layers and a slider that wipes between them (browser side, so dragging causes no rerun)."""
+    from branca.element import MacroElement
+    from jinja2 import Template
+
+    class Swipe(MacroElement):
+        _template = Template("""
+        {% macro script(this, kwargs) %}
+        (function () {
+          var map = {{ this._parent.get_name() }};
+          var box = map.getContainer();
+          var before = map.getPane('swipe_before'), after = map.getPane('swipe_after');
+          function tag(text, side) {
+            var d = L.DomUtil.create('div', '', box);
+            d.textContent = text;
+            d.style.cssText = 'position:absolute;top:10px;' + side + (side == 'left' ? ':52px' : ':10px') + ';z-index:1000;background:rgba(0,0,0,.65);color:#fff;'
+              + 'padding:2px 8px;border-radius:3px;font:13px sans-serif;pointer-events:none';
+          }
+          tag({{ this.before_name|tojson }}, 'left');
+          tag({{ this.after_name|tojson }}, 'right');
+          var line = L.DomUtil.create('div', '', box);
+          line.style.cssText = 'position:absolute;top:0;bottom:0;width:3px;margin-left:-1px;background:#fff;z-index:999;pointer-events:none';
+          var input = L.DomUtil.create('input', 'swipe-range', box);
+          input.type = 'range'; input.min = 0; input.max = 100; input.value = 50;
+          input.setAttribute('aria-label', 'Before and after position');
+          input.style.cssText = 'position:absolute;left:5%;width:90%;bottom:24px;z-index:1000;cursor:ew-resize';
+          L.DomEvent.disableClickPropagation(input);
+          function update() {
+            var size = map.getSize(), nw = map.containerPointToLayerPoint([0, 0]), se = map.containerPointToLayerPoint(size);
+            var px = size.x * input.value / 100, x = nw.x + px;
+            before.style.clip = 'rect(' + [nw.y, x, se.y, nw.x].join('px,') + 'px)';
+            after.style.clip = 'rect(' + [nw.y, se.x, se.y, x].join('px,') + 'px)';
+            line.style.left = px + 'px';
+          }
+          input.addEventListener('input', update);
+          map.on('move zoom resize moveend zoomend', update);
+          update();
+        })();
+        {% endmacro %}
+        """)
+
+        def __init__(self):
+            super().__init__()
+            self._name = "Swipe"
+            self.before_name, self.after_name = before_name, after_name
+
+    m = folium.Map(location=[(bounds[0][0] + bounds[1][0]) / 2, (bounds[0][1] + bounds[1][1]) / 2], zoom_start=13, tiles=None, control_scale=True)
+    folium.TileLayer(tiles=SAT_TILES, attr=SAT_ATTR, name="Satellite photo").add_to(m)
+    add_labels(m)
+    for pane, z, img in (("swipe_before", 450, before), ("swipe_after", 451, after)):
+        folium.map.CustomPane(pane, z_index=z).add_to(m)
+        folium.raster_layers.ImageOverlay(image=img, bounds=bounds, opacity=opacity, pane=pane).add_to(m)
+    m.fit_bounds(bounds)
+    Swipe().add_to(m)
+    return m.get_root().render()
+
+
+def embed_html(html: str, height: int):
+    """st.iframe in current Streamlit, the older component where it does not exist yet."""
+    if hasattr(st, "iframe"):
+        st.iframe(html, height=height)
+    else:
+        import streamlit.components.v1 as components
+        components.html(html, height=height)
 
 
 def false_colour(store, i):
@@ -249,7 +321,7 @@ else:
 
 sb.header("3. Options")
 smooth = sb.checkbox("3-month majority smoothing", True,
-                     help="Cuts false change by about a third in our test. Turn off to see raw predictions.")
+                     help="Cut false class flips on stable land from 2.83% to 1.22% per month in our 2021 test. Turn off to see raw predictions.")
 run = sb.button("Run", type="primary", disabled=models is None or source == "Saved run (offline)")
 
 # ------------------------------------------------------------------ run
@@ -273,7 +345,7 @@ if run:
             ym = proto.finished_months(proto.month_sequence(year, month))    # the current year runs up to the last finished month
             for w in proto.check_period(ym):
                 st.warning(w)
-            proto.fetch_months(ee, region, ym, CACHE, lambda f, t: bar.progress(f * 0.5, t))
+            grid = proto.fetch_months(ee, region, ym, CACHE, lambda f, t: bar.progress(f * 0.5, t))
             store = proto.load_store_ym(CACHE, region.key, ym)
             from collections import Counter
             ym_year = Counter(y for y, _ in ym).most_common(1)[0][0]        # the dominant calendar year of the 12 months
@@ -287,7 +359,7 @@ if run:
                     reference = proto.fetch_esri_reference(ee, region, ym_year, CACHE)   # Esri annual map for this year (independent)
                 except Exception as e:
                     st.warning(f"Esri reference for {ym_year} not available: {e}")
-            place = f"{lat:.4f}, {lon:.4f}"
+            place = proto.demo_name(lat, lon) or f"{lat:.4f}, {lon:.4f}"      # a demo gets a readable name in the saved-run list
             bounds = proto.bounds_latlon(region)
         else:
             store, ym = proto.load_local(data_dir, region_key)
@@ -295,9 +367,10 @@ if run:
             place = region_key
             try:
                 from lulc.config import load_config
-                bounds = proto.bounds_latlon(next(r for r in load_config(ROOT / "configs" / "regions.yaml")[1] if r.key == region_key))
+                reg = next(r for r in load_config(ROOT / "configs" / "regions.yaml")[1] if r.key == region_key)
+                bounds, grid = proto.bounds_latlon(reg), proto.grid_for_region(reg)
             except Exception:
-                bounds = None                                    # region not in the config: plain maps
+                bounds = grid = None                             # region not in the config: plain maps, no GeoTIFF
         use_coh = proto.uses_coh(card)
         if use_coh:                                              # coherence research model: load the area's coherence file
             src_dir = CACHE if source == "Earth Engine" else data_dir
@@ -313,8 +386,12 @@ if run:
         labels = proto.month_labels([ym[i] for i in months])
         ood = ood_check(area_signature(conf, members), proto.load_ood_reference(weights))
         st.session_state["res"] = dict(ood=ood, store=store, ym=[ym[i] for i in months], months=months, labels=labels, preds=preds,
-                                       members=members, reference=reference, bounds=bounds, place=place, smooth=smooth, k=len(models))
-        save_run(st.session_state["res"])     # keep it for instant offline replay later
+                                       members=members, reference=reference, bounds=bounds, place=place, smooth=smooth, k=len(models), grid=grid,
+                                       absent=[ym[i] for i, ok in enumerate(store.present) if not ok])
+        try:
+            st.toast(f"Saved for offline replay: {save_run(st.session_state['res'])}")    # keep it for instant offline replay later
+        except Exception as e:
+            st.warning(f"This run could not be saved for offline replay, so it would have to be run live again: {e}")
         bar.empty()
     except Exception as e:
         bar.empty()
@@ -329,8 +406,13 @@ if res is None:
     st.info("Choose the weights folder, a place and a start month, then press **Run**.")
     st.stop()
 
-out = proto.analyse(res["preds"], res["members"], res["labels"], res["smooth"])
+try:
+    out = proto.analyse(res["preds"], res["members"], res["labels"], res["smooth"])
+except ValueError as e:
+    st.error(str(e))
+    st.stop()
 preds, stats, labels = out["preds"], out["stats"], res["labels"]
+first, last = out["first"], out["last"]                 # the first and last month that have radar
 store, months = res["store"], res["months"]
 
 place_disp = res["place"]
@@ -342,8 +424,9 @@ m1, m2, m3, m4 = st.columns(4)
 m1.markdown(metric_card("Place", place_disp), unsafe_allow_html=True)
 m2.markdown(metric_card("Period", fmt_period(labels)), unsafe_allow_html=True)
 m3.markdown(metric_card("Models in ensemble", res["k"]), unsafe_allow_html=True)
-m4.markdown(metric_card("Pixels used for change", f"{stats.valid_fraction.iloc[0] * 100:.0f}%"), unsafe_allow_html=True)
+m4.markdown(metric_card("Pixels used for change", f"{stats.valid_fraction.dropna().iloc[0] * 100:.0f}%"), unsafe_allow_html=True)
 missing = [proto.month_labels([res['ym'][i]])[0] for i in range(len(months)) if not store.s1[months[i], 0].any()]
+missing += proto.month_labels(res.get("absent", []))
 if missing:
     st.warning(f"No Sentinel-1 data for: {', '.join(missing)}.")
 if len(labels) < 12:
@@ -376,6 +459,15 @@ tab_map, tab_cmp, tab_share, tab_change, tab_years, tab_check, tab_info = st.tab
 with tab_map:
     i = st.select_slider("Month", options=list(range(len(labels))), format_func=lambda k: labels[k], key="month")
     bounds = res.get("bounds")
+    if (preds[i] == 255).all():
+        st.warning(f"No Sentinel-1 data for {labels[i]}: this month has no map, and it is left out of the change figures.")
+    disagree = out["disagree"]
+    grey = st.checkbox("Grey out pixels where the seeds disagree", False, disabled=disagree is None,
+                       help="Pixels where the ensemble members do not all give the same class. Display only: shares and change still use every pixel."
+                            if disagree is not None else "This needs more than one model in the ensemble.")
+    uncertain = disagree[i] if grey else None
+    if grey:
+        st.caption(f"{100 * uncertain.sum() / max((preds[i] != 255).sum(), 1):.1f}% of the pixels with radar in {labels[i]} are greyed out.")
     left, right = st.columns(2)
     if HAVE_MAP and bounds is not None:
         c1, c2 = left.columns(2)
@@ -384,12 +476,13 @@ with tab_map:
         hl = left.checkbox("Highlight pixels that changed since the previous month", False, disabled=i == 0,
                            help="Unchanged pixels are faded. Most highlighted pixels are noise, see the Change tab.")
         m = base_map(bounds, satellite)
-        img = proto.highlight_rgba(preds[i], preds[i - 1], CLASS_COLORS) if hl and i > 0 else proto.overlay_rgba(preds[i], CLASS_COLORS)
+        img = (proto.highlight_rgba(preds[i], preds[i - 1], CLASS_COLORS, no_data="hatch", uncertain=uncertain) if hl and i > 0
+               else proto.overlay_rgba(preds[i], CLASS_COLORS, no_data="hatch", uncertain=uncertain))
         folium.raster_layers.ImageOverlay(image=img, bounds=bounds, opacity=alpha,
                                           name=f"Land cover ({labels[i]})", overlay=True).add_to(m)
         folium.LayerControl(collapsed=False).add_to(m)
         hit = st_folium(m, height=520, use_container_width=True, returned_objects=["last_clicked"], key="resmap")
-        left.markdown(legend_html(), unsafe_allow_html=True)
+        left.markdown(f"**Share of the area, {labels[i]}**" + legend_html(stats.percent.iloc[i], seeds=grey), unsafe_allow_html=True)
         lc = (hit or {}).get("last_clicked")
         px = proto.click_to_pixel(lc["lat"], lc["lng"], bounds, preds.shape) if lc else None
     else:
@@ -400,7 +493,7 @@ with tab_map:
         left.pyplot(fig); plt.close(fig)
         if bounds is None:
             left.caption("No map position for this region, so no basemap. Earth Engine runs always have one.")
-    right.image(class_rgb(preds[i]), caption=f"Predicted land cover, {labels[i]}", clamp=True, use_container_width=True)
+    right.image(class_rgb(preds[i], uncertain), caption=f"Predicted land cover, {labels[i]}", clamp=True, use_container_width=True)
     right.image(false_colour(store, months[i]), caption=f"Sentinel-1 radar, {labels[i]}: R = VV, G = VH, B = VV-VH", clamp=True, use_container_width=True)
     share = stats.percent.iloc[i]
     right.bar_chart(share.rename("% of area"), height=220, color="#555555")
@@ -427,12 +520,26 @@ with tab_map:
         buf = io.BytesIO(); fig.savefig(buf, dpi=110, bbox_inches="tight")
         st.download_button("Download all maps (PNG)", buf.getvalue(), "lulc_maps.png", "image/png")
         plt.close(fig)
+    with st.expander("Download as GeoTIFF"):
+        grid = res.get("grid")
+        if grid is None:
+            st.info("This run has no map position saved. Run the place again to get a GeoTIFF.")
+        else:
+            try:
+                st.download_button(f"This month, {labels[i]} (GeoTIFF)", proto.geotiff_bytes(preds[i], grid, [labels[i]], CLASS_COLORS),
+                                   f"lulc_{_slug(labels[i])}.tif", "image/tiff")
+                st.download_button(f"All {len(labels)} months, one band each (GeoTIFF)", proto.geotiff_bytes(preds, grid, labels),
+                                   f"lulc_{_slug(labels[0])}_to_{_slug(labels[-1])}.tif", "image/tiff")
+                st.caption(f"{grid.crs}, 10 m pixels. Class ids: " + ", ".join(f"{k} = {n}" for k, n in enumerate(CLASS_NAMES))
+                           + ". 255 = no radar. Greying out is not included.")
+            except ImportError as e:
+                st.info(f"GeoTIFF export needs rasterio, which cannot be loaded here: {e}")
 
 with tab_cmp:
-    st.subheader("Two maps side by side")
+    st.subheader("Compare two maps")
     bounds = res.get("bounds")
     if not HAVE_MAP or bounds is None:
-        st.info("Side-by-side compare needs the interactive map (install folium) and an Earth Engine run (it has a map position).")
+        st.info("Comparing maps needs the interactive map (install folium) and an Earth Engine run (it has a map position).")
     else:
         from folium.plugins import DualMap
         ref = res.get("reference")
@@ -441,23 +548,34 @@ with tab_cmp:
         cL, cR = st.columns(2)
         li = cL.selectbox("Left map", list(range(len(labels))), format_func=lambda k: labels[k], key="cmp_left")
         rsel = cR.selectbox("Right map", right_opts, index=min(len(labels) - 1, len(right_opts) - 1), key="cmp_right")
-        center = [(bounds[0][0] + bounds[1][0]) / 2, (bounds[0][1] + bounds[1][1]) / 2]
-        dm = DualMap(location=center, zoom_start=12, tiles=None)
-        for half in (dm.m1, dm.m2):
-            folium.TileLayer(tiles=SAT_TILES, attr=SAT_ATTR, name="Satellite").add_to(half)
-        folium.raster_layers.ImageOverlay(proto.overlay_rgba(preds[li], CLASS_COLORS), bounds=bounds, opacity=0.75).add_to(dm.m1)
+        c1, c2 = st.columns(2)
+        cmp_mode = c1.radio("View", ["Before/after slider", "Side by side"], horizontal=True, key="cmp_mode")
+        cmp_alpha = c2.slider("Class layer opacity", 0.0, 1.0, 0.75, 0.05, key="cmp_alpha")
+        left_img = proto.overlay_rgba(preds[li], CLASS_COLORS, no_data="hatch")
         if rsel.startswith("Month: "):
-            right_img = proto.overlay_rgba(preds[labels.index(rsel[7:])], CLASS_COLORS)
+            right_img = proto.overlay_rgba(preds[labels.index(rsel[7:])], CLASS_COLORS, no_data="hatch")
             right_name = rsel[7:]
+            right_share = stats.percent.iloc[labels.index(rsel[7:])]
         else:
             right_img = class_rgb(ref["wc"] if rsel == "WorldCover" else ref["esri"])
             right_name = rsel + " (reference map)"
-        folium.raster_layers.ImageOverlay(right_img, bounds=bounds, opacity=0.75).add_to(dm.m2)
-        for half in (dm.m1, dm.m2):
-            half.fit_bounds(bounds)
-        st_folium(dm, height=520, use_container_width=True, returned_objects=[], key="cmpmap")
-        st.caption(f"Left: {labels[li]}. Right: {right_name}. The two maps pan and zoom together.")
-        st.markdown(legend_html(), unsafe_allow_html=True)
+            right_share = None
+        if cmp_mode == "Before/after slider":
+            embed_html(swipe_map_html(bounds, left_img, right_img, cmp_alpha, labels[li], right_name), 540)
+            st.caption(f"Left of the line: {labels[li]}. Right of the line: {right_name}. Drag the slider at the bottom of the map.")
+        else:
+            center = [(bounds[0][0] + bounds[1][0]) / 2, (bounds[0][1] + bounds[1][1]) / 2]
+            dm = DualMap(location=center, zoom_start=12, tiles=None)
+            for half in (dm.m1, dm.m2):
+                folium.TileLayer(tiles=SAT_TILES, attr=SAT_ATTR, name="Satellite").add_to(half)
+            folium.raster_layers.ImageOverlay(left_img, bounds=bounds, opacity=cmp_alpha).add_to(dm.m1)
+            folium.raster_layers.ImageOverlay(right_img, bounds=bounds, opacity=cmp_alpha).add_to(dm.m2)
+            for half in (dm.m1, dm.m2):
+                half.fit_bounds(bounds)
+            st_folium(dm, height=520, use_container_width=True, returned_objects=[], key="cmpmap")
+            st.caption(f"Left: {labels[li]}. Right: {right_name}. The two maps pan and zoom together.")
+        st.markdown((f"**Share of the area, {labels[li]} → {right_name}**" if right_share is not None else f"**Share of the area, {labels[li]}**")
+                    + legend_html(stats.percent.iloc[li], right_share), unsafe_allow_html=True)
 
 with tab_share:
     st.subheader("Share of the area per class (%)")
@@ -518,36 +636,38 @@ with tab_change:
     steps = stats.delta.iloc[1:].round(2).copy()
     steps["total churn"] = out["churn"].round(2)
     steps["scenes (to month)"] = [("" if not np.isfinite(scenes[k + 1]) else f"{scenes[k + 1]:.0f}") for k in range(len(labels) - 1)]
-    steps["vs noise floor"] = np.where(out["within_noise"], "within noise", "ABOVE noise")
+    steps["vs noise floor"] = np.select([out["churn"].isna(), out["within_noise"]], ["no radar", "within noise"], "ABOVE noise")
     steps.index = [f"{a} to {b}" for a, b in zip(labels[:-1], labels[1:])]
     st.dataframe(steps)
-    above = [steps.index[k] for k, w in enumerate(out["within_noise"]) if not w]
+    above = [steps.index[k] for k, f in enumerate(steps["vs noise floor"]) if f == "ABOVE noise"]
     if above:
         st.warning(f"Total churn is above the noise floor ({floor} pp) in: {', '.join(above)}. "
                    "These months are the candidates for real change. Check them against the maps and the radar image.")
     else:
         st.info(f"No month-to-month change is above the noise floor ({floor} pp total churn per month). "
                 "Nothing here can be told apart from classification noise.")
-    st.subheader(f"Total change {labels[0]} to {labels[-1]} (percentage points)")
+    st.subheader(f"Total change {labels[first]} to {labels[last]} (percentage points)")
     st.dataframe(stats.total_change.round(2).to_frame("pp"))
     st.write(f"Net change across all classes: **{out['net']:.1f} pp**. "
-             f"On land that did not change, our test showed about {proto.NOISE_FLOOR['net_first_to_last_pp']} pp between the first and "
+             f"On land that did not change, our test showed about {out['floor_net']} pp between the first and "
              f"last month, so a net change below that is {'' if out['net_within_noise'] else 'not '}within noise here.")
-    st.caption(f"Noise floor from: {proto.NOISE_FLOOR['source']}. The labels are annual, so the monthly maps have no ground truth; "
+    st.caption(f"Noise floor from: {proto.NOISE_FLOOR['source']}. It is an average, not an upper limit, so a stable place can exceed it: "
+               "compare with the control city too. The labels are annual, so the monthly maps have no ground truth; "
                "seasonal radar effects (snow, wet soil, harvest) look like change.")
     st.download_button("Download change (CSV)", steps.to_csv(), "class_change.csv", "text/csv")
     st.subheader("Where the class differs between the first and the last month")
-    ch = proto.change_map(preds[0], preds[-1])
+    ch = proto.change_map(preds[first], preds[last])
     c1, c2, c3 = st.columns(3)
-    for col, arr, title in ((c1, preds[0], labels[0]), (c2, preds[-1], labels[-1]), (c3, ch, "Changed pixels (class of last month)")):
+    for col, arr, title in ((c1, preds[first], labels[first]), (c2, preds[last], labels[last]), (c3, ch, "Changed pixels (class of last month)")):
         fig, ax = plt.subplots(figsize=(4, 4))
         ax.imshow(np.full(arr.shape, 0.92), cmap="gray", vmin=0, vmax=1) if arr is ch else None
         ax.imshow(np.ma.masked_where(show(arr) == 0, show(arr)), cmap=CMAP, vmin=0, vmax=6, interpolation="nearest")
         ax.axis("off"); ax.set_title(title, fontsize=9)
         col.pyplot(fig); plt.close(fig)
-    valid = (preds[0] != 255) & (preds[-1] != 255)
+    valid = (preds[first] != 255) & (preds[last] != 255)
+    flip_floor = proto.NOISE_FLOOR["flip_rate_smoothed_pct" if res["smooth"] else "flip_rate_raw_pct"]
     st.caption(f"{100 * (ch != 255).sum() / max(valid.sum(), 1):.1f}% of the pixels have a different class in the last month. "
-               f"On land that did not change, our test found about {proto.NOISE_FLOOR['flip_rate_raw_pct']}% flips between months, "
+               f"On land that did not change, our test found about {flip_floor}% flips between consecutive months, "
                "so most of this is noise unless it forms large, compact patches.")
 
 with tab_years:
@@ -632,10 +752,10 @@ with tab_years:
                 st.markdown("**Change from year to year (percentage points)**")
                 d = shares.diff().iloc[1:].round(2)
                 d["total change"] = (shares.diff().iloc[1:].abs().sum(axis=1) / 2).round(2)
-                d["vs noise"] = np.where(d["total change"] < proto.NOISE_FLOOR["net_first_to_last_pp"], "within noise", "ABOVE noise")
+                d["vs noise"] = np.where(d["total change"] < proto.NOISE_FLOOR["net_smoothed_pp"], "within noise", "ABOVE noise")
                 d.index = [f"{a} to {b}" for a, b in zip(ys[:-1], ys[1:])]
                 st.dataframe(d)
-                st.caption(f"Noise reference: {proto.NOISE_FLOOR['net_first_to_last_pp']} pp net change between two months on land that "
+                st.caption(f"Noise reference: {proto.NOISE_FLOOR['net_smoothed_pp']} pp net change between two smoothed months on land that "
                            "did not change. Year maps use 12 months, so real noise should be lower, but we did not measure it. "
                            "Years after 2021 are also noisier (fewer scenes) and unchecked.")
                 c1, c2 = st.columns(2)
@@ -695,13 +815,14 @@ dB scenes of the region's dominant orbit direction. A U-Net (ResNet-34) reads a 
 {res['k']} ensemble members are trained with different seeds; the maps are the mean of their probabilities.
 
 **Change.** Class shares use only pixels valid in all months. Change is the difference of shares in percentage points.
-Smoothing replaces each month's class with the majority over the month and its two neighbours.
+Smoothing replaces each month's class with the majority over the month and its two neighbours. A pixel with no radar in a month stays
+"no radar" in that month, and a month with no radar at all is left out of the change figures.
 
 **What to trust.**
 - The monthly maps have **no ground truth**: labels are annual, and Dynamic World, our training label, is itself a model.
 - On land that did not change, the model still reports about {proto.NOISE_FLOOR['monthly_churn_raw_pp']} pp total churn per month
   ({proto.NOISE_FLOOR['monthly_churn_smoothed_pp']} pp with smoothing). Smaller changes are noise.
-- Grass/shrub is weak (IoU about 0.15 against Dynamic World). Radar cannot reliably separate grass, shrub and crops.
+- Grass/shrub is weak (IoU about 0.38 against Dynamic World, V12, 2021 test regions). Radar cannot reliably separate grass, shrub and crops.
 - Weak in arid shrubland and in landscapes unlike the training regions (mostly European cities plus a few rural tiles).
 - The area check compares mean confidence and seed disagreement with a few held-out test regions. It is a coarse flag, not a
   probability of being wrong, and it only exists when `ood_reference.json` is in the weights folder.

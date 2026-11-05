@@ -27,12 +27,17 @@ or set `EE_PROJECT`.
 streamlit run prototype/app.py
 ```
 Open http://localhost:8501, choose the place and the start month, press Run. Downloaded months are cached in `.cache_lulc/`,
-so a second run of the same place is fast.
+so a second run of the same place makes no download or Earth Engine data call, including after a restart.
+
+**Recording a demo.** Run every demo once on Earth Engine: each run is saved in `saved_runs/`. Then record with the data source "Saved run (offline)",
+so latency or quota cannot break it. Demos were chosen for visible change and radar coverage, so they are not accuracy evidence.
 
 Offline test without Earth Engine: choose "Local export" and give the export folder (`data/raw`) and a region key.
 
 ## What the interface offers
-- Maps: class layer over a satellite photo or street map, opacity slider, month slider, click a pixel to see its class in every month.
+- Maps: class layer over a satellite photo or street map, opacity slider, month slider, per-month class shares in the legend, click a pixel to see its class in every month. Months and pixels without radar are striped, never a class colour. A toggle greys out pixels where the seeds disagree.
+- Compare: a before/after slider or two linked maps, for any two months or a month and a reference map.
+- Downloads: GeoTIFF of one month or all months (needs `rasterio`), PNG of all maps, CSV of shares and change.
 - Place: type latitude and longitude, or open "Pick the place on a map" in the sidebar and click.
 - Class shares: stacked area chart plus per-class lines with the spread between seeds.
 - Change: month-to-month table with noise-floor flags, and a map of pixels whose class differs between the first and the last month.
@@ -43,8 +48,8 @@ Offline test without Earth Engine: choose "Local export" and give the export fol
 ## How the change is computed
 Class shares use only pixels valid in all months of the run. Change = difference of shares in percentage points, month to month and first to last.
 Optional smoothing replaces each month's class by the majority over three consecutive months.
-The noise floor (total class churn per month on land that did not change) comes from our false-change test on 9 test regions and is
-set in `src/lulc/proto.py` (`NOISE_FLOOR`). Update it if you retrain.
+The noise floor (total class churn per month on land that did not change) comes from the V12 false-change test on 9 test regions, 2021, and is
+set in `src/lulc/proto.py` (`NOISE_FLOOR`). Update it if you retrain. It is a mean over regions, so a stable place can exceed it.
 
 ## Limits
 The monthly maps have no ground truth (labels are annual and come from another model). Grass/shrub is weak. Hilly areas have no

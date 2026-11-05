@@ -28,7 +28,7 @@ def _make(tmp, key, seed, h=96):
             "dw_label": lab, "dw_conf": np.full((h, h), 90, np.uint8), "dw_n": np.full((h, h), 3, np.uint8)}, {})
 
 
-def test_evaluate_with_stats_model(tmp_path):
+def test_evaluate_with_stats_model(tmp_path, capsys):
     for k, s in (("a", 0), ("b", 1), ("v", 2), ("t1", 3), ("t2", 4), ("t3", 5), ("t4", 6)):
         _make(tmp_path / "raw", k, s)
     tr = {k: load_store(tmp_path / "raw", k, "train", stats=True) for k in "ab"}
@@ -76,6 +76,17 @@ def test_evaluate_with_stats_model(tmp_path):
     finally:
         lulc.infer.predict_region = real
     assert seen and set(seen) == {(32, 8)}
+    # a region folder with no files for this year stops the run, unless --skip-missing names it and carries on
+    (tmp_path / "raw" / "gone").mkdir()
+    yml2 = tmp_path / "regions2.yaml"
+    yml2.write_text(f"year: 2021\nhalf_size_km: 12\nregions:\n{regs}\n  gone: {{name: gone, lat: 40, lon: 10, split: test, half_size_km: 12}}\n")
+    base = ["--data", str(tmp_path / "raw"), "--runs", str(tmp_path / "runs"), "--variant", "VX", "--config", str(yml2), "--splits", "test"]
+    with pytest.raises(FileNotFoundError):
+        evaluate.main([*base, "--tag", "_nogone"])
+    capsys.readouterr()
+    assert evaluate.main([*base, "--skip-missing", "--tag", "_skip"]) == 0
+    assert "Skipped 1 region(s) with no 2021 month files: gone. Scored 4 regions." in capsys.readouterr().out
+    assert "gone" not in (tmp_path / "runs" / "eval_VX_skip" / "per_city.csv").read_text()
     with pytest.raises(SystemExit):
         evaluate.main(["--data", str(tmp_path / "raw"), "--runs", str(tmp_path / "runs"), "--variant", "VX", "--config", str(yml),
                        "--patch", "32", "--overlap", "32"])

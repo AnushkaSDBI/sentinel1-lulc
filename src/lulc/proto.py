@@ -22,21 +22,39 @@ from .ee_export import (CompositeSettings, build_image, build_reference_image, e
                         export_region_month, make_fetcher, month_path, region_direction, verify_grid_with_ee)
 from .grid import grid_bounds_lonlat, grid_for_region
 from .metrics import ConfusionMatrix
-from .stats import monthly_change_table
+from .stats import MonthlyStats, monthly_change_table
 
 MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
-# False change measured on pixels that WorldCover and Esri both call stable (9 test regions, V2,
-# 3 seeds, 2021). Total class churn per month = sum of |change in class share| / 2, in pp.
+# False change measured on pixels that WorldCover and Esri both call stable (9 test regions, V12,
+# 3 seeds, 2021; scripts/evaluate.py, change.csv). Total class churn per month = sum of |change in class share| / 2, in pp.
+# These are means over the regions, not upper limits, so a stable place can still exceed them.
 NOISE_FLOOR = {
-    "monthly_churn_raw_pp": 6.3,
-    "monthly_churn_smoothed_pp": 4.2,
-    "net_first_to_last_pp": 7.9,
-    "seed_spread_pp": 1.2,
-    "flip_rate_raw_pct": 8.3,
-    "flip_rate_smoothed_pct": 5.1,
-    "source": "false-change test on 9 test regions, 2021 (see report)",
+    "monthly_churn_raw_pp": 2.06,
+    "monthly_churn_smoothed_pp": 0.98,
+    "net_raw_pp": 1.15,
+    "net_smoothed_pp": 2.35,
+    "seed_spread_pp": 0.97,
+    "flip_rate_raw_pct": 2.83,
+    "flip_rate_smoothed_pct": 1.22,
+    "source": "false-change test on 9 test regions, V12, 2021 (see report)",
 }
+
+# Demo places: none is a train or validation region, and the change they show is in classes radar reads well (water, built-up).
+# They were chosen for visible change and radar coverage, so they are not accuracy evidence. Check each on satellite before recording.
+DEMOS = {
+    "Heidelberg, Germany (city)": (49.40, 8.67, 2021, 1),
+    "Tonle Sap, Cambodia (seasonal lake)": (13.00, 104.05, 2021, 1),
+    "Inner Niger delta, Mali (flood plain)": (15.20, -4.20, 2021, 1),
+    "Poyang Lake, China (seasonal lake)": (29.10, 116.25, 2021, 1),
+    "Punjab, India (double-cropped fields)": (30.90, 75.80, 2021, 1),
+    "Control: Prague, Czechia (built-up city, should NOT change)": (50.0755, 14.4378, 2021, 1),
+}
+
+
+def demo_name(lat: float, lon: float) -> str | None:
+    """The demo at this point, or None."""
+    return next((n for n, d in DEMOS.items() if abs(d[0] - lat) < 1e-4 and abs(d[1] - lon) < 1e-4), None)
 
 
 def month_sequence(year: int, month: int, n: int = 12) -> list[tuple[int, int]]:
@@ -127,6 +145,10 @@ def fetch_months(ee, region: Region, ym, workdir, progress=None, workers: int = 
     from .ee_stats import region_geometry
 
     grid = grid_for_region(region)
+    if all(month_path(Path(workdir), region.key, y, m).exists() for y, m in ym):      # nothing to download: make no Earth Engine call at all
+        if progress:
+            progress(1.0, "all months already downloaded")
+        return grid
     verify_grid_with_ee(ee, grid)
     direction = region_direction(ee, region, ym[0][0])
     geom = region_geometry(ee, region)
@@ -263,20 +285,45 @@ def run_models(models, store: RegionStore, norm, window, device, progress=None, 
 
 # ------------------------------------------------------------------ results
 def analyse(preds, members, labels, smooth: bool) -> dict:
-    """Shares, change, uncertainty and noise-floor flags. preds (T,H,W), members (K,T,H,W)."""
+    """Shares, change, uncertainty and noise-floor flags. preds (T,H,W), members (K,T,H,W).
+
+    A pixel with no radar in a month stays no-data after smoothing: the majority vote would otherwise fill it from the
+    neighbouring months and show a class that was never observed. A month with no radar at all has NaN shares and no
+    change on either side (churn NaN, not flagged); the other months are compared on the pixels valid in all of them."""
+    preds, members = np.asarray(preds), np.asarray(members)
+    labels = list(labels)
     if smooth and len(preds) >= 3:
-        preds = temporal_majority(preds, 3)
-        members = np.stack([temporal_majority(m, 3) for m in members])
-    st = monthly_change_table(list(preds), labels, CLASS_NAMES, IGNORE_INDEX, True)
-    churn = st.delta.iloc[1:].abs().sum(axis=1) / 2
+        def keep_no_data(p):
+            return np.where(p == IGNORE_INDEX, IGNORE_INDEX, temporal_majority(p, 3)).astype(np.uint8)
+        preds = keep_no_data(preds)
+        members = np.stack([keep_no_data(m) for m in members])
+    has_radar = (preds != IGNORE_INDEX).any(axis=(1, 2))
+    if has_radar.sum() < 2:
+        raise ValueError(f"Only {int(has_radar.sum())} of {len(labels)} months have radar data here, and change needs at least 2.")
+    kept = [lab for lab, ok in zip(labels, has_radar) if ok]
+    part = monthly_change_table(list(preds[has_radar]), kept, CLASS_NAMES, IGNORE_INDEX, True)
+    percent = part.percent.reindex(labels)
+    st = MonthlyStats(percent, percent.diff(), part.total_change, part.valid_fraction.reindex(labels))
+    churn = st.delta.iloc[1:].abs().sum(axis=1, min_count=1) / 2
     floor = NOISE_FLOOR["monthly_churn_smoothed_pp" if smooth else "monthly_churn_raw_pp"]
-    spread = member_spread(members) if members.shape[0] > 1 else None
+    floor_net = NOISE_FLOOR["net_smoothed_pp" if smooth else "net_raw_pp"]
+    several = members.shape[0] > 1
+    spread = member_spread(members[:, has_radar]) if several else None
     net = float(st.total_change.abs().sum() / 2)
+    present = np.flatnonzero(has_radar)
     return {
-        "preds": preds, "stats": st, "churn": churn, "floor": floor,
-        "within_noise": (churn < floor), "net": net, "net_within_noise": net < NOISE_FLOOR["net_first_to_last_pp"],
-        "spread": None if spread is None else pd.DataFrame(spread["std"], index=labels, columns=CLASS_NAMES),
+        "preds": preds, "stats": st, "churn": churn, "floor": floor, "floor_net": floor_net,
+        "within_noise": (churn < floor), "net": net, "net_within_noise": net < floor_net,
+        "spread": None if spread is None else pd.DataFrame(spread["std"], index=kept, columns=CLASS_NAMES).reindex(labels),
+        "disagree": seed_disagreement(members) if several else None,
+        "first": int(present[0]), "last": int(present[-1]),
     }
+
+
+def seed_disagreement(members, ignore: int = IGNORE_INDEX) -> np.ndarray:
+    """True (T,H,W) where the ensemble members do not all give the same class. member_spread gives the same idea per class share."""
+    members = np.asarray(members)
+    return (members != members[0]).any(0) & (members != ignore).all(0)
 
 
 def scene_flags(scenes) -> list[bool]:
@@ -359,22 +406,58 @@ def bounds_latlon(region: Region):
     return [[s, w], [n, e]]
 
 
-def overlay_rgba(pred, colors, ignore: int = IGNORE_INDEX) -> np.ndarray:
-    """class ids (H,W) -> uint8 RGBA (H,W,4); no-data pixels are transparent."""
+# Built-up is dark grey (#4d4d4d) and Bare near-white (#e8e8e8), so these stay clear of both.
+HATCH_LIGHT, HATCH_DARK = (200, 200, 200, 255), (25, 25, 25, 255)      # diagonal stripes, which no class has
+SEEDS_DISAGREE = (150, 150, 150, 255)                                  # mid grey
+
+
+def overlay_rgba(pred, colors, ignore: int = IGNORE_INDEX, no_data: str = "transparent", uncertain=None) -> np.ndarray:
+    """class ids (H,W) -> uint8 RGBA (H,W,4). no_data: "transparent" or "hatch" (striped, so it is never read as a class).
+    uncertain: optional bool mask (H,W), painted mid grey."""
     pal = np.array([[int(c[i:i + 2], 16) for i in (1, 3, 5)] + [255] for c in colors], np.uint8)
     pred = np.asarray(pred)
     out = np.zeros((*pred.shape, 4), np.uint8)
     ok = (pred != ignore) & (pred < len(colors))
     out[ok] = pal[pred[ok].astype(int)]
+    if uncertain is not None:
+        out[ok & np.asarray(uncertain)] = SEEDS_DISAGREE
+    if no_data == "hatch":
+        rows, cols = np.indices(pred.shape)
+        stripe = (rows + cols) // 8 % 2 == 0
+        out[~ok & stripe] = HATCH_LIGHT
+        out[~ok & ~stripe] = HATCH_DARK
     return out
 
 
-def highlight_rgba(pred, prev, colors, dim: float = 0.25, ignore: int = IGNORE_INDEX) -> np.ndarray:
+def highlight_rgba(pred, prev, colors, dim: float = 0.25, ignore: int = IGNORE_INDEX, no_data: str = "transparent", uncertain=None) -> np.ndarray:
     """Like overlay_rgba, but pixels whose class equals the previous month are faded; changed pixels stay solid."""
-    out = overlay_rgba(pred, colors, ignore)
-    same = (np.asarray(pred) == np.asarray(prev)) | (np.asarray(prev) == ignore)
+    out = overlay_rgba(pred, colors, ignore, no_data, uncertain)
+    pred, prev = np.asarray(pred), np.asarray(prev)
+    same = ((pred == prev) | (prev == ignore)) & (pred != ignore)
     out[same, 3] = (out[same, 3] * dim).astype(np.uint8)
     return out
+
+
+def geotiff_bytes(preds, grid, labels, colors=None, ignore: int = IGNORE_INDEX) -> bytes:
+    """Class maps as a GeoTIFF on the region's UTM grid: one band per label, class ids 0..5, no-data 255. preds (H,W) or (T,H,W).
+    A single map also gets the class colours; several bands keep the class names in the tags."""
+    import rasterio
+    from rasterio.io import MemoryFile
+
+    a = np.asarray(preds, np.uint8)
+    a = a[None] if a.ndim == 2 else a
+    if a.shape[-2:] != (grid.size_px, grid.size_px):
+        raise ValueError(f"map size {a.shape[-2:]} does not match the grid ({grid.size_px} px)")
+    profile = dict(driver="GTiff", count=a.shape[0], height=a.shape[1], width=a.shape[2], dtype="uint8", nodata=ignore, crs=grid.crs,
+                   transform=rasterio.Affine(grid.res, 0, grid.x0, 0, -grid.res, grid.y0), compress="deflate")
+    with MemoryFile() as mem:
+        with mem.open(**profile) as dst:
+            dst.write(a)
+            dst.descriptions = tuple(str(x) for x in labels)
+            dst.update_tags(classes=", ".join(f"{i}={n}" for i, n in enumerate(CLASS_NAMES)), source="Sentinel-1 land cover prototype")
+            if colors is not None and a.shape[0] == 1:
+                dst.write_colormap(1, {i: tuple(int(c[j:j + 2], 16) for j in (1, 3, 5)) + (255,) for i, c in enumerate(colors)})
+        return mem.read()
 
 
 def uncovered_share(s1_month) -> float:
