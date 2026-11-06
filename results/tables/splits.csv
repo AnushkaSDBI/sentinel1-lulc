@@ -1,0 +1,6 @@
+split,city,rural,total
+case_study,1,0,1
+test,2,5,7
+test_ood,3,29,32
+train,10,11,21
+val,2,4,6

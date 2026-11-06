@@ -1,0 +1,19 @@
+year,model,regions,mIoU,ci_low,ci_high,OA,n
+2025,trained on 2021 only,all,0.485,0.435,0.54,0.685,39
+2025,trained on 2021 only,cities,0.465,0.402,0.563,0.751,5
+2025,trained on 2021 only,rural,0.476,0.415,0.525,0.619,34
+2025,trained on 2021-2024 (shipped),all,0.54,0.468,0.615,0.723,39
+2025,trained on 2021-2024 (shipped),cities,0.489,0.378,0.6,0.781,5
+2025,trained on 2021-2024 (shipped),rural,0.538,0.472,0.592,0.665,34
+2025,"trained on 2021-2024, boundary loss",all,0.531,0.461,0.602,0.715,39
+2025,"trained on 2021-2024, boundary loss",cities,0.495,0.391,0.598,0.782,5
+2025,"trained on 2021-2024, boundary loss",rural,0.517,0.452,0.574,0.649,34
+2026,trained on 2021 only,all,0.553,0.496,0.596,0.738,39
+2026,trained on 2021 only,cities,0.513,0.447,0.58,0.803,5
+2026,trained on 2021 only,rural,0.517,0.452,0.574,0.674,34
+2026,trained on 2021-2024 (shipped),all,0.562,0.493,0.634,0.744,39
+2026,trained on 2021-2024 (shipped),cities,0.51,0.408,0.608,0.799,5
+2026,trained on 2021-2024 (shipped),rural,0.556,0.48,0.624,0.689,34
+2026,"trained on 2021-2024, boundary loss",all,0.545,0.475,0.619,0.732,39
+2026,"trained on 2021-2024, boundary loss",cities,0.494,0.391,0.598,0.785,5
+2026,"trained on 2021-2024, boundary loss",rural,0.542,0.468,0.612,0.68,34

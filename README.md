@@ -14,12 +14,13 @@ Source of every number: `notebooks/report_stats.ipynb`, which writes `results/re
 
 | Test | Reference map | Pooled mIoU (95% interval over regions) |
 |---|---|---|
-| 2025, 39 unseen regions | Dynamic World 2025 | 0.540 (0.468 to 0.616) |
-| 2026, 39 unseen regions | Dynamic World 2026 | 0.557 (0.487 to 0.633) |
-| 2021, 26 unseen regions | Dynamic World 2021 | 0.621 (0.540 to 0.674) |
-| 2021, same regions | Esri 2021 (independent) | 0.678 |
+| 2025, 39 unseen regions | Dynamic World 2025 | 0.540 (0.468 to 0.615) |
+| 2026, 39 unseen regions | Dynamic World 2026 | 0.562 (0.493 to 0.634) |
+| 2021, 38 unseen regions (a training year, so held out in space only) | Dynamic World 2021 | 0.532 (0.446 to 0.627) |
+| 2021, the 9 of those regions with independent maps | Esri 2021 (independent) | 0.668 (0.524 to 0.716) |
 
-Per-class IoU on the 2021 test: Water 0.908, Built-up 0.840, Cropland 0.586, Tree cover 0.531, Bare 0.478, Grass/shrub 0.381.
+Per-class IoU on the 2026 test: Built-up 0.845, Tree cover 0.599, Water 0.588, Cropland 0.554, Bare 0.416, Grass/shrub 0.367.
+Scores use inference with no-data neighbour months filled. That input fix was compared before and after on these test regions (2026 without it: 0.557).
 Scores are over all labelled pixels. Some projects report only the pixels where two label products agree, which is easier;
 that row is also in `results/report_numbers.md` (`vs Dynamic World, only where WorldCover agrees`).
 
@@ -42,7 +43,7 @@ that row is also in `results/report_numbers.md` (`vs Dynamic World, only where W
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt && pip install -e .
-pytest -q                                    # 158 tests
+pytest -q                                    # 178 tests (on Windows, activate with .venv\Scripts\activate)
 streamlit run prototype/app.py               # needs weights/ (see prototype/README.md) and an Earth Engine project
 ```
 
@@ -58,7 +59,7 @@ All settings are in `configs/` and all seeds are fixed. Earth Engine needs your 
 
 ## Limits
 
-- No monthly ground truth. I test stability on pixels both annual maps call stable: 2.83% of them change class between months in the raw maps and 1.22% after 3-month smoothing (Dynamic World itself: 6.79%).
+- No monthly ground truth. I test stability on pixels both annual maps call stable: 2.61% of them change class between months in the raw maps and 1.00% after 3-month smoothing (Dynamic World itself: 6.79%; 9 regions with both annual maps, 2021).
 - 2025 and 2026 are scored against Dynamic World only, a model output with its own errors.
 - Weak classes: Grass/shrub, Bare, Cropland. Arid and cold regions score lowest (Sahel, Great Basin, Patagonia, Iceland, Tibet).
 - Borders are soft. The CRF, graph head, test-time augmentation and the full-resolution branch are implemented; read `results/report_numbers.md` for which of them were evaluated.
@@ -177,7 +178,7 @@ Variants (`configs/experiments.yaml`): V0 scratch U-Net ResNet-34, V1 ImageNet e
 V3 V2 plus Dynamic World confidence cutoff (50), V4 V3 plus seasonal coherence (needs `export_coherence.py` and the
 professor's OK that coherence counts as Sentinel-1). V2-V8 use the encoder weights of whichever of V0/V1 wins on validation.
 
-Added after the first results, all measured against V2 on validation only (gaps under 0.05 mIoU are seed noise):
+Added after the first results, all measured against V2 on validation only (the spread between seeds is about 0.01 to 0.03 mIoU, so smaller gaps are noise):
 V5 five yearly statistic channels (VV min/max, VH std, VH 2nd-high minus 2nd-low, share of months VV < -18 dB; order independent),
 V6 class-weight power 0.75 plus Lovasz loss, V7 speckle augmentation (multiplicative Gamma noise in dB, p 0.5, 10 looks),
 V8 all three. `--exclude pampas nsw_pasture kenya_savanna mongolia_steppe arabia_desert` trains on the old regions, so the new

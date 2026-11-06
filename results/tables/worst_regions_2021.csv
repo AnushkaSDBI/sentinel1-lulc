@@ -1,0 +1,9 @@
+region,type,climate,dw_miou,dw_oa,n_major_classes,mean_conf
+sahel_niger,rural,arid,0.027,0.055,2,0.664
+great_basin,rural,arid,0.069,0.312,3,0.538
+patagonia_steppe,rural,southern_temperate,0.093,0.501,4,0.693
+kazakh_steppe,rural,continental_crop,0.107,0.343,5,0.706
+za_karoo_shrub,rural,southern_africa,0.125,0.662,3,0.896
+iceland_tundra,rural,boreal,0.136,0.5,3,0.577
+texas_rangeland,rural,arid,0.137,0.482,3,0.666
+appalachians,rural,continental,0.149,0.826,3,0.887

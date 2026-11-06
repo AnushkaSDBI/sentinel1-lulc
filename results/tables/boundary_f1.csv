@@ -1,0 +1,7 @@
+year,model,boundary_F1_raw,boundary_F1_majority3,pred_over_ref_border_px,how
+2025,trained on 2021 only,0.219,0.22,0.7,mean of regions (re-run evaluate.py for the pooled value)
+2025,trained on 2021-2024 (shipped),0.344,0.346,0.69,pooled
+2025,"trained on 2021-2024, boundary loss",0.248,0.249,0.78,mean of regions (re-run evaluate.py for the pooled value)
+2026,trained on 2021 only,0.232,0.236,0.75,mean of regions (re-run evaluate.py for the pooled value)
+2026,trained on 2021-2024 (shipped),0.369,0.371,0.74,pooled
+2026,"trained on 2021-2024, boundary loss",0.265,0.269,0.85,mean of regions (re-run evaluate.py for the pooled value)

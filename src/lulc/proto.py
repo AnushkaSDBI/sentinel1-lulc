@@ -25,18 +25,19 @@ from .stats import MonthlyStats, monthly_change_table
 
 MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
-# False change measured on pixels that WorldCover and Esri both call stable (9 test regions, V12,
-# 3 seeds, 2021; scripts/evaluate.py, change.csv). Total class churn per month = sum of |change in class share| / 2, in pp.
+# False change measured on pixels that WorldCover and Esri both call stable (9 test regions, the shipped V12 trained on 2021-2024,
+# 3 seeds, 2021 imagery; scripts/evaluate.py, eval_V12_window3_balanced_stats_2021_tolerant/change.csv).
+# Total class churn per month = sum of |change in class share| / 2, in pp.
 # These are means over the regions, not upper limits, so a stable place can still exceed them.
 NOISE_FLOOR = {
-    "monthly_churn_raw_pp": 2.06,
-    "monthly_churn_smoothed_pp": 0.98,
-    "net_raw_pp": 1.15,
-    "net_smoothed_pp": 2.35,
-    "seed_spread_pp": 0.97,
-    "flip_rate_raw_pct": 2.83,
-    "flip_rate_smoothed_pct": 1.22,
-    "source": "false-change test on 9 test regions, V12, 2021 (see report)",
+    "monthly_churn_raw_pp": 1.61,
+    "monthly_churn_smoothed_pp": 0.62,
+    "net_raw_pp": 2.27,
+    "net_smoothed_pp": 1.48,
+    "seed_spread_pp": 2.23,
+    "flip_rate_raw_pct": 2.61,
+    "flip_rate_smoothed_pct": 1.00,
+    "source": "false-change test on 9 test regions, V12 trained on 2021-2024, 2021 imagery (see report)",
 }
 
 # Demo places: none is a train or validation region, and the change they show is in classes radar reads well (water, built-up).

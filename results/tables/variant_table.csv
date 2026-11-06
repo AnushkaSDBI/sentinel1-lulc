@@ -1,0 +1,16 @@
+trained,variant,mean,std,seeds
+trained on 2021,V0_scratch_1m,0.466,0.01,3
+trained on 2021,V11_window3_balanced,0.628,0.007,3
+trained on 2021,V12_window3_balanced_stats,0.646,0.01,3
+trained on 2021,V1_imagenet_1m,0.597,0.008,3
+trained on 2021,V5_window3_stats,0.639,0.019,3
+trained on 2021,V6_window3_loss,0.609,0.019,3
+trained on 2021,V7_window3_speckle,0.633,0.003,3
+trained on 2021,V8_window3_all,0.628,0.027,3
+trained on 2021,V9_window3_regularised,0.604,0.026,3
+trained on 2021-2024,V0_scratch_1m,0.466,0.01,3
+trained on 2021-2024,V12_window3_balanced_stats,0.616,0.002,3
+trained on 2021-2024,V16_window3_boundary,0.619,0.006,3
+trained on 2021-2024,V17_window3_fullres,0.613,0.001,3
+trained on 2021-2024,V18_window5,0.613,0.005,3
+trained on 2021-2024,V1_imagenet_1m,0.597,0.008,3

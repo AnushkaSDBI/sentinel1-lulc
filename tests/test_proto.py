@@ -81,9 +81,9 @@ def test_scene_counts_are_read_and_flagged(tmp_path):
 
 
 def test_noise_floor_is_the_v12_measurement():
-    assert NOISE_FLOOR["flip_rate_raw_pct"] == 2.83 and NOISE_FLOOR["flip_rate_smoothed_pct"] == 1.22
-    assert NOISE_FLOOR["monthly_churn_raw_pp"] == 2.06 and NOISE_FLOOR["monthly_churn_smoothed_pp"] == 0.98
-    assert NOISE_FLOOR["net_raw_pp"] == 1.15 and NOISE_FLOOR["net_smoothed_pp"] == 2.35
+    assert NOISE_FLOOR["flip_rate_raw_pct"] == 2.61 and NOISE_FLOOR["flip_rate_smoothed_pct"] == 1.00
+    assert NOISE_FLOOR["monthly_churn_raw_pp"] == 1.61 and NOISE_FLOOR["monthly_churn_smoothed_pp"] == 0.62
+    assert NOISE_FLOOR["net_raw_pp"] == 2.27 and NOISE_FLOOR["net_smoothed_pp"] == 1.48
     assert "V12" in NOISE_FLOOR["source"]
 
 

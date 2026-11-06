@@ -1,0 +1,4 @@
+seed,best_epoch,best_val_miou,epochs_run
+seed0,12,0.613,12
+seed1,12,0.617,12
+seed2,11,0.617,12
