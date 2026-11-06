@@ -66,7 +66,7 @@ All settings are in `configs/` and all seeds are fixed. Earth Engine needs your 
 
 - No monthly ground truth. I test stability on pixels both annual maps call stable: 2.61% of them change class between months in the raw maps and 1.00% after 3-month smoothing (Dynamic World itself: 6.79%; 9 regions with both annual maps, 2021).
 - 2025 and 2026 are scored against Dynamic World only, a model output with its own errors.
-- Weak classes: Grass/shrub, Bare, Cropland. Arid and cold regions score lowest (Sahel, Great Basin, Patagonia, Iceland, Tibet).
+- Weak classes: Grass/shrub, Bare, Cropland. Lowest mIoU regions, shipped model, averaged over 2025 and 2026 (Dynamic World mIoU): Great Basin 0.078, Iceland 0.094, Patagonia 0.100, Kazakh steppe 0.125, Sahel 0.129.
 - Borders are soft. Test-time augmentation, Gaussian stitching, the CRF, the full-resolution branch and the graph head were all tested, and none passed the rule set before the results (table in `notebooks/05_experiments.ipynb`), so none is used.
 
 ## Related work and licence
@@ -83,7 +83,7 @@ Ideas taken from other projects and papers are listed in `docs/REFERENCES.md`; n
 |---|---|
 | Model input | Sentinel-1 GRD from Earth Engine (`COPERNICUS/S1_GRD`), IW, VV and VH, monthly median, one orbit direction per region |
 | Training labels | Dynamic World monthly composites (`GOOGLE/DYNAMICWORLD/V1`) |
-| Independent validation | ESA WorldCover 2021, plus CORINE and Urban Atlas for the German cities |
+| Independent validation | ESA WorldCover 2021, and Esri 2017-2025 Land Cover |
 | Sentinel-2 | Visual checks of labels only, never a model input |
 
 Earth Engine's Sentinel-1 data has thermal noise removal, radiometric
