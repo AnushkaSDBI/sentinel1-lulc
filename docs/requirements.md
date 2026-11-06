@@ -32,19 +32,19 @@ Collect data and train a deep learning model for Land Use and Land Cover (LULC) 
 - Use sparse categorical cross-entropy (in PyTorch: cross-entropy with integer labels, `ignore_index` for unlabelled pixels).
 - Use early stopping to avoid overfitting.
 
-## Status against the list (2026-10-29)
+## Status against the list (2026-11-06, due 2026-11-09)
 | Item | Status |
 |---|---|
-| Dataset | Exported to Drive (32 regions, 2021). Download link not made yet. Five new southern/arid tiles not exported yet. |
-| Notebook(s) with outputs | The five notebooks in `notebooks/`, saved with outputs; training curves and tables are in `03_train_validate_test.ipynb`. |
+| Dataset | Exported to Drive (regions across 2021-2026, `runs_multiyear`). Download link not made yet. |
+| Notebook(s) with outputs | Done. The five notebooks in `notebooks/`, saved with real outputs; training curves and tables are in `03_train_validate_test.ipynb`, border experiments in `05_experiments.ipynb`. |
 | Prototype source, README, requirements | Done and tested on real Heidelberg data. README and `requirements.txt` in the repo. |
-| Trained weights | V2 seeds exist. Copy the final variant to `weights/`, with `ood_reference.json`. |
+| Trained weights | Done. 3-seed ensemble in `weights/final_model.pt`, with `ood_reference.json`. |
 | Screen recording, urban area | Not done. Plan: Heidelberg, run locally. |
-| Class distribution table | Check: needs a per-split table of class shares in the report. |
+| Class distribution table | Open: not yet in the report document. |
 | Preprocessing text | S1_GRD in Earth Engine: calibrated, geometric terrain correction, dB; no radiometric terrain flattening, no spatial speckle filter (temporal median per month). State exactly this. |
 | OA, mIoU, per-class IoU/F1 | Done in `evaluate.py` (bootstrap by city). |
-| Variant comparison | V0-V4 done; V5-V8 pending. |
-| Independent map | WorldCover and Esri in the prototype and `evaluate.py`. Heidelberg 2021 screenshot still needed. |
-| Critical discussion | Material exists: unseen regions (Great Basin), grass/shrub confusion, December 2021 anomaly, false change. Write it with numbers. |
+| Variant comparison | Done: V0-V12 plus the border experiments (TTA, Gaussian, CRF, graph head) in notebook 05; none passed the border rule, so none is shipped. |
+| Independent map | WorldCover and Esri in the prototype and `evaluate.py`. Heidelberg 2021 screenshot done (`docs/figures/heidelberg_2021_independent_check.png`). |
+| Critical discussion | Material exists: unseen regions (Great Basin, Iceland, Patagonia), grass/shrub confusion, false change from label noise. Open: not yet written up in the report document. |
 | Imbalance | Class-weighted CE + Dice (+ Lovasz in V6). |
 | Early stopping | Done: patience 5 epochs on validation mIoU of the EMA weights, best checkpoint kept (max 12 epochs). |
