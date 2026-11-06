@@ -67,7 +67,7 @@ All settings are in `configs/` and all seeds are fixed. Earth Engine needs your 
 - No monthly ground truth. I test stability on pixels both annual maps call stable: 2.61% of them change class between months in the raw maps and 1.00% after 3-month smoothing (Dynamic World itself: 6.79%; 9 regions with both annual maps, 2021).
 - 2025 and 2026 are scored against Dynamic World only, a model output with its own errors.
 - Weak classes: Grass/shrub, Bare, Cropland. Arid and cold regions score lowest (Sahel, Great Basin, Patagonia, Iceland, Tibet).
-- Borders are soft. The CRF, graph head, test-time augmentation and the full-resolution branch are implemented; read `results/report_numbers.md` for which of them were evaluated.
+- Borders are soft. Test-time augmentation, Gaussian stitching, the CRF, the full-resolution branch and the graph head were all tested, and none passed the rule set before the results (table in `notebooks/05_experiments.ipynb`), so none is used.
 
 ## Related work and licence
 

@@ -5,6 +5,7 @@
 Copied, per run folder:
   <variant>/seed*/   history.csv, summary.json, model_card.json, config.json, years.json  (never best.pt)
   eval_*/            every .csv and .json (metrics, per-region scores, boundary, change, by-month, ood_reference)
+  crf_*/, graph_head_*/, sharpen_*/   the same, for the border experiments
   val_summary.csv
 
 Weights (*.pt) and anything larger than --max-mb are skipped and listed. Run it on Data Lab, then commit results/.
@@ -18,6 +19,7 @@ from pathlib import Path
 
 SEED_FILES = ("history.csv", "summary.json", "model_card.json", "config.json", "years.json")
 EVAL_SUFFIXES = (".csv", ".json")
+EVAL_PREFIXES = ("eval_", "crf_", "graph_head_", "sharpen_")
 
 
 def collect(runs: Path, out: Path, max_mb: float = 5.0) -> tuple[list[Path], list[tuple[Path, str]]]:
@@ -41,7 +43,7 @@ def collect(runs: Path, out: Path, max_mb: float = 5.0) -> tuple[list[Path], lis
             for name in SEED_FILES:
                 if (seed_dir / name).exists():
                     take(seed_dir / name)
-    for ev in sorted(runs.glob("eval_*")):
+    for ev in sorted(d for d in runs.iterdir() if d.is_dir() and d.name.startswith(EVAL_PREFIXES)):
         for f in sorted(ev.iterdir()):
             if f.is_file() and f.suffix in EVAL_SUFFIXES:
                 take(f)
