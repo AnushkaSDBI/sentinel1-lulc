@@ -1,0 +1,13 @@
+,dw_miou,dw_miou,dw_oa,dw_oa,mean_conf,mean_conf
+,mean,count,mean,count,mean,count
+climate,,,,,,
+arid,0.315,7,0.752,7,0.796,7
+boreal,0.191,3,0.584,3,0.684,3
+continental,0.403,4,0.772,4,0.767,4
+continental_crop,0.256,5,0.651,5,0.746,5
+mediterranean,0.464,2,0.804,2,0.802,2
+oceanic,0.576,1,0.858,1,0.842,1
+oceanic_highland,0.229,2,0.644,2,0.725,2
+southern_africa,0.284,4,0.487,4,0.66,4
+southern_temperate,0.202,2,0.545,2,0.799,2
+tropical,0.264,9,0.729,9,0.746,9

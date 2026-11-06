@@ -1,0 +1,8 @@
+,dw_miou,dw_miou,dw_oa,dw_oa,mean_conf,mean_conf
+,mean,count,mean,count,mean,count
+climate,,,,,,
+arid,0.541,2,0.7,2,0.848,2
+continental,0.408,4,0.865,4,0.849,4
+mediterranean,0.492,2,0.839,2,0.816,2
+oceanic,0.588,1,0.874,1,0.844,1
+southern_africa,0.288,4,0.607,4,0.759,4
