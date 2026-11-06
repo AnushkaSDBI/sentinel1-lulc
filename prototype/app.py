@@ -655,7 +655,7 @@ with tab_video:
             ys_p = sorted(yr_state["summ"]["maps"])
             seqs["Year on year"] = _seq(("years", str(yr_state["place"]), tuple(ys_p), int(sum(int(yr_state["summ"]["maps"][y].sum()) for y in ys_p) % 100003)),
                                         tuple(yr_state["summ"]["maps"][y] for y in ys_p), tuple(str(y) for y in ys_p))
-        components_html(layers.player_html(seqs, CLASS_COLORS, CLASS_NAMES), height=690, scrolling=False)
+        components_html(layers.player_html(seqs, CLASS_COLORS, CLASS_NAMES), height=690, scrolling=True)
         if "Year on year" not in seqs:
             st.caption("Year on year needs two or more years. Run them under Over the years, and the Step switch appears here.")
         with st.expander("Download the animation as a GIF"):
