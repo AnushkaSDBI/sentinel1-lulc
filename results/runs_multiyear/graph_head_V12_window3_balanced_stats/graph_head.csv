@@ -1,0 +1,4 @@
+map,mIoU,boundary_F1,iou_Tree cover,iou_Grass/shrub,iou_Cropland,iou_Built-up,iou_Bare,iou_Water
+model,0.533,0.345,0.586,0.357,0.503,0.841,0.385,0.526
+object_vote,0.501,0.214,0.533,0.345,0.473,0.762,0.386,0.504
+graph_head,0.468,0.198,0.503,0.352,0.434,0.756,0.338,0.424
