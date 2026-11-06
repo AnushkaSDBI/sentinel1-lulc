@@ -178,3 +178,7 @@ def test_player_html_contains_every_frame_and_controls():
     assert len(seq["frames"]["Land cover"]) == 4 and "100.0% of the pixels changed" in seq["caption"][1]
     html = layers.player_html({"Month by month": seq, "Year on year": seq}, CLASS_COLORS, ["a"] * 6)
     assert "id=\"play\"" in html and "id=\"spd\"" in html and html.count("data:image/png;base64,") >= 16 and "__DATA__" not in html
+    assert "id=\"rows\"" in html and "followTheme" in html
+    assert seq["shares"][1][1] == 100.0 and sum(seq["shares"][1]) == 100.0
+    blank = layers.build_sequence([np.full((2, 2), 255, np.uint8), np.array([[0, 0], [1, 255]], np.uint8)], ["A", "B"], CLASS_COLORS)
+    assert blank["shares"][0] is None and blank["shares"][1][:2] == [66.7, 33.3]

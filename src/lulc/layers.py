@@ -413,7 +413,7 @@ def map_frame(pred, prev, colors, mode: str, max_side: int = 520, no_data=(205, 
 
 
 def build_sequence(maps, labels, colors, ignore: int = IGNORE_INDEX) -> dict:
-    """Frames for one sequence (months or years): both modes plus a caption per frame with the share of pixels that changed."""
+    """Frames for one sequence (months or years): both modes, a caption per frame with the share of pixels that changed, and the share of each class among pixels with radar (None if a frame has none)."""
     maps = [np.asarray(m) for m in maps]
     cap = []
     for k, m in enumerate(maps):
@@ -423,13 +423,19 @@ def build_sequence(maps, labels, colors, ignore: int = IGNORE_INDEX) -> dict:
         both = (m != ignore) & (maps[k - 1] != ignore)
         pct = 100 * float(((m != maps[k - 1]) & both).sum()) / max(int(both.sum()), 1) if both.any() else float("nan")
         cap.append("No radar in one of the two months." if not np.isfinite(pct) else f"{pct:.1f}% of the pixels changed class since {labels[k - 1]}.")
-    return {"labels": list(labels), "caption": cap,
+    n_classes = len(colors)
+    shares = []
+    for m in maps:
+        valid = m[m != ignore]
+        shares.append(None if valid.size == 0 else [round(float((valid == c).mean() * 100), 1) for c in range(n_classes)])
+    return {"shares": shares, "labels": list(labels), "caption": cap,
             "frames": {"Land cover": [map_frame(m, None, colors, "Land cover") for m in maps],
                        "Changed pixels": [map_frame(m, None if k == 0 else maps[k - 1], colors, "Changed pixels") for k, m in enumerate(maps)]}}
 
 
 def player_html(sequences: dict, colors, names, start_speed: float = 1.0) -> str:
-    """Self-contained player: Play / Pause, speed, a slider, a switch between land cover and changed pixels, and (with more than one
+    """Self-contained player: Play / Pause, speed, a slider, a switch between land cover and changed pixels, bars with the share of each class beside the map,
+    colours taken from the surrounding page, and (with more than one
     sequence) a switch between month by month and year on year. Starts paused. sequences: {name: build_sequence(...)}."""
     import json
     data = json.dumps({"seq": sequences, "colors": list(colors), "names": list(names), "speed": start_speed})
@@ -438,44 +444,98 @@ def player_html(sequences: dict, colors, names, start_speed: float = 1.0) -> str
 
 _PLAYER_TEMPLATE = """<!doctype html><meta charset="utf-8">
 <style>
- body{margin:0;font:14px/1.4 system-ui,-apple-system,Segoe UI,sans-serif;color:#222;background:#fff}
- .wrap{border:1px solid #d0d0d0;border-radius:10px;padding:12px;max-width:760px}
+ :root{--bg:#fff;--fg:#222;--muted:#555;--ctl:#f6f6f6;--line:#9a9a9a;--track:#e6e6e6}
+ :root[data-theme=dark]{--bg:#0e1117;--fg:#fafafa;--muted:#b0b4bf;--ctl:#262730;--line:#6b6f7b;--track:#262730}
+ html,body{background:var(--bg)}
+ body{margin:0;font:14px/1.4 system-ui,-apple-system,Segoe UI,sans-serif;color:var(--fg)}
  .bar{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-bottom:10px}
- button,select{font:inherit;padding:5px 10px;border:1px solid #9a9a9a;border-radius:6px;background:#f6f6f6;color:#222;cursor:pointer}
- button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid #222;outline-offset:2px}
+ button,select{font:inherit;padding:5px 10px;border:1px solid var(--line);border-radius:6px;background:var(--ctl);color:var(--fg);cursor:pointer}
+ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
  #play{min-width:92px;font-weight:600}
  .seg button{border-radius:0;margin-left:-1px}.seg button:first-child{border-radius:6px 0 0 6px;margin-left:0}.seg button:last-child{border-radius:0 6px 6px 0}
- .seg button[aria-pressed=true]{background:#222;color:#fff;border-color:#222}
- #img{display:block;width:100%;max-width:520px;image-rendering:pixelated;image-rendering:crisp-edges;border:1px solid #ccc}
- #sl{width:100%;max-width:520px;margin:8px 0 2px}
- #lab{font-weight:600;font-size:16px}#cap{color:#555;min-height:20px}
+ .seg button[aria-pressed=true]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+ .main{display:grid;grid-template-columns:minmax(0,520px) minmax(220px,360px);gap:16px 32px;align-items:start}
+ #img{display:block;width:100%;image-rendering:pixelated;image-rendering:crisp-edges;border:1px solid var(--line);box-sizing:border-box}
+ #sl{width:100%;margin:8px 0 2px;box-sizing:border-box}
+ #lab{font-weight:600;font-size:16px}#cap{color:var(--muted);min-height:20px}
  .leg{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px;font-size:12px}
- .leg span{display:inline-flex;align-items:center;gap:5px}.leg i{width:13px;height:13px;border:1px solid #888;border-radius:3px;display:inline-block}
+ .leg span{display:inline-flex;align-items:center;gap:5px}.leg i,.nm i{width:13px;height:13px;border:1px solid var(--line);border-radius:3px;display:inline-block;box-sizing:border-box}
+ #sh h3{margin:0;font-size:16px;font-weight:600}#shsub{color:var(--muted);font-size:12px;margin:2px 0 14px}
+ .row{margin-bottom:12px}.rl{display:flex;justify-content:space-between;gap:8px;margin-bottom:4px}
+ .nm{display:inline-flex;align-items:center;gap:6px}.pc{font-variant-numeric:tabular-nums;font-weight:600}
+ .tr{height:10px;background:var(--track);border-radius:4px;overflow:hidden}
+ .fl{height:100%;border-radius:0 4px 4px 0;box-shadow:inset 0 0 0 1px var(--line);transition:width .25s ease;min-width:0}
+ @media (prefers-reduced-motion:reduce){.fl{transition:none}}
+ @media (max-width:640px){.main{grid-template-columns:minmax(0,1fr)}}
 </style>
-<div class="wrap">
- <div class="bar">
-  <button id="play" aria-label="Play or pause">&#9654; Play</button>
-  <label>Speed <select id="spd"><option value="0.5">0.5x</option><option value="1">1x</option><option value="2">2x</option><option value="4">4x</option></select></label>
-  <span id="seqw"><label>Step <select id="seq"></select></label></span>
-  <span class="seg" id="modes" role="group" aria-label="What to show"><button data-m="Land cover" aria-pressed="true">Land cover</button><button data-m="Changed pixels" aria-pressed="false">Changed pixels</button></span>
+<div class="bar">
+ <button id="play" aria-label="Play or pause">&#9654; Play</button>
+ <label>Speed <select id="spd"><option value="0.5">0.5x</option><option value="1">1x</option><option value="2">2x</option><option value="4">4x</option></select></label>
+ <span id="seqw"><label>Step <select id="seq"></select></label></span>
+ <span class="seg" id="modes" role="group" aria-label="What to show"><button data-m="Land cover" aria-pressed="true">Land cover</button><button data-m="Changed pixels" aria-pressed="false">Changed pixels</button></span>
+</div>
+<div class="main">
+ <div>
+  <img id="img" alt="Land cover map">
+  <input id="sl" type="range" min="0" value="0" aria-label="Frame">
+  <div id="lab"></div><div id="cap"></div><div class="leg" id="leg"></div>
  </div>
- <img id="img" alt="Land cover map">
- <input id="sl" type="range" min="0" value="0" aria-label="Frame">
- <div id="lab"></div><div id="cap"></div><div class="leg" id="leg"></div>
+ <aside id="sh" aria-label="Share of each class">
+  <h3 id="shtitle"></h3><div id="shsub">Land cover, % of pixels with radar. Scale 0 to 100%.</div>
+  <div id="rows"></div>
+ </aside>
 </div>
 <script>
 const D = __DATA__;
 const $ = id => document.getElementById(id);
+function rgbOf(c) { const m = String(c).match(/[\d.]+/g); return m && m.length >= 3 && (m.length < 4 || parseFloat(m[3]) > 0) ? m.slice(0, 3).map(Number) : null; }
+function followTheme() {
+  /* Take the colours of the page around this frame, so the player has no box of its own. */
+  const root = document.documentElement;
+  let bg = null, fg = null, font = null;
+  try {
+    if (window.parent !== window) {
+      const doc = window.parent.document;
+      for (const el of [doc.querySelector(".stApp"), doc.body]) {
+        if (!el) continue;
+        const cs = window.parent.getComputedStyle(el);
+        if (rgbOf(cs.backgroundColor)) { bg = cs.backgroundColor; fg = cs.color; font = cs.fontFamily; break; }
+      }
+    }
+  } catch (e) { /* the frame may not read its parent: use the browser setting below */ }
+  const rgb = bg && rgbOf(bg);
+  const dark = rgb ? 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2] < 128 : !!(window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches);
+  root.dataset.theme = dark ? "dark" : "light";
+  root.style.colorScheme = dark ? "dark" : "light";
+  if (bg) root.style.setProperty("--bg", bg); else root.style.removeProperty("--bg");
+  if (fg) root.style.setProperty("--fg", fg); else root.style.removeProperty("--fg");
+  if (font) document.body.style.fontFamily = font;
+}
+followTheme();
+setInterval(followTheme, 1000);
 let seq = Object.keys(D.seq)[0], mode = "Land cover", idx = 0, timer = null;
 const spd = $("spd"); spd.value = String(D.speed);
 Object.keys(D.seq).forEach(k => { const o = document.createElement("option"); o.value = o.textContent = k; $("seq").appendChild(o); });
 if (Object.keys(D.seq).length < 2) $("seqw").style.display = "none";
 $("leg").innerHTML = D.names.map((n, i) => `<span><i style="background:${D.colors[i]}"></i>${n}</span>`).join("")
   + `<span><i style="background:#cdcdcd"></i>no radar / unchanged</span>`;
+$("rows").innerHTML = D.names.map((n, i) => `<div class="row" id="r${i}"><div class="rl"><span class="nm"><i style="background:${D.colors[i]}"></i>${n}</span><span class="pc" id="p${i}"></span></div>`
+  + `<div class="tr"><div class="fl" id="f${i}" style="background:${D.colors[i]};width:0"></div></div></div>`).join("");
+function drawShares(s) {
+  const shares = s.shares[idx], label = s.labels[idx];
+  $("shtitle").textContent = "Share of each class, " + label;
+  D.names.forEach((n, i) => {
+    const v = shares ? shares[i] : null;
+    $("f" + i).style.width = (v === null ? 0 : Math.min(100, v)) + "%";
+    $("p" + i).textContent = v === null ? "no radar" : v.toFixed(1) + "%";
+    $("r" + i).title = v === null ? `${n}: no radar in ${label}` : `${n}: ${v.toFixed(1)}% of the pixels with radar in ${label}`;
+  });
+}
 function draw() {
   const s = D.seq[seq]; $("sl").max = s.labels.length - 1; idx = Math.min(idx, s.labels.length - 1); $("sl").value = idx;
   $("img").src = s.frames[mode][idx]; $("img").alt = mode + ", " + s.labels[idx];
   $("lab").textContent = s.labels[idx]; $("cap").textContent = s.caption[idx];
+  drawShares(s);
 }
 function step() { const n = D.seq[seq].labels.length; idx = (idx + 1) % n; draw(); }
 function setPlaying(on) {
