@@ -14,12 +14,13 @@ Source of every number: `notebooks/report_stats.ipynb`, which writes `results/re
 
 | Test | Reference map | Pooled mIoU (95% interval over regions) |
 |---|---|---|
-| 2025, 39 unseen regions | Dynamic World 2025 | 0.540 (0.468 to 0.616) |
-| 2026, 39 unseen regions | Dynamic World 2026 | 0.557 (0.487 to 0.633) |
-| 2021, 26 unseen regions | Dynamic World 2021 | 0.621 (0.540 to 0.674) |
-| 2021, same regions | Esri 2021 (independent) | 0.678 |
+| 2025, 39 unseen regions | Dynamic World 2025 | 0.540 (0.468 to 0.615) |
+| 2026, 39 unseen regions | Dynamic World 2026 | 0.562 (0.493 to 0.634) |
+| 2021, 38 unseen regions (a training year, so held out in space only) | Dynamic World 2021 | 0.532 (0.446 to 0.627) |
+| 2021, the 9 of those regions with independent maps | Esri 2021 (independent) | 0.668 (0.524 to 0.716) |
 
-Per-class IoU on the 2021 test: Water 0.908, Built-up 0.840, Cropland 0.586, Tree cover 0.531, Bare 0.478, Grass/shrub 0.381.
+Per-class IoU on the 2026 test: Built-up 0.845, Tree cover 0.599, Water 0.588, Cropland 0.554, Bare 0.416, Grass/shrub 0.367.
+Scores use inference with no-data neighbour months filled. That input fix was compared before and after on these test regions (2026 without it: 0.557).
 Scores are over all labelled pixels. Some projects report only the pixels where two label products agree, which is easier;
 that row is also in `results/report_numbers.md` (`vs Dynamic World, only where WorldCover agrees`).
 
