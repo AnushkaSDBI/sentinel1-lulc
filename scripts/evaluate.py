@@ -244,7 +244,10 @@ def main(argv=None) -> int:
     for k, v in metrics.items():
         print(f"{k:12s} mIoU {v['miou']:.3f} [{v['miou_lo']:.3f}, {v['miou_hi']:.3f}]  OA {v['oa']:.3f}  ({v['n_cities']} cities)")
     if "tolerant" in metrics:
-        print("tolerant: a prediction counts as correct if it matches Dynamic World, WorldCover or Esri. It flatters any model; the gap to dw is the error the maps themselves dispute.")
+        same = pd.DataFrame(city_rows).dropna(subset=["tolerant_miou"])
+        print("tolerant: a prediction counts as correct if it matches Dynamic World, WorldCover or Esri. It flatters any model, and it covers only the regions "
+              "with WorldCover and Esri maps, so compare it with dw on those same regions:")
+        print(f"  mean over {len(same)} regions: dw mIoU {same.dw_miou.mean():.3f}, tolerant mIoU {same.tolerant_miou.mean():.3f}")
     if change_rows:
         print(pd.DataFrame(change_rows).groupby("maps")[["flip_rate_pct", "monthly_churn_pp", "net_total_change_pp"]].mean().round(2))
     if skipped:

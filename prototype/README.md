@@ -10,7 +10,8 @@ pip install -r requirements.txt        # from the repository root (Python 3.11+)
 ```
 For a GPU install the CUDA build of PyTorch first (pytorch.org). The CPU works: a 5.12 km area takes a few minutes.
 
-**Weights.** Copy the winning run from training into `weights/`, one sub-folder per seed:
+**Weights.** Put the shipped `final_model.pt` and `ood_reference.json` in `weights/` (download link in the main README, or build them with
+`scripts/package_model.py`). Alternatively, copy the winning run from training into `weights/`, one sub-folder per seed:
 ```
 weights/seed0/best.pt  weights/seed0/model_card.json
 weights/seed1/...      weights/seed2/...

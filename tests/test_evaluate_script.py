@@ -121,7 +121,7 @@ def test_tolerant_score_and_map_agreement(tmp_path, capsys):
     base = ["--data", str(tmp_path / "raw"), "--runs", str(tmp_path / "runs"), "--variant", "VX", "--config", str(yml), "--splits", "test", "--esri-scheme", "original"]
     assert evaluate.main(base) == 0
     printed = capsys.readouterr().out
-    assert "fill gaps True" in printed and "tolerant" in printed
+    assert "fill gaps True" in printed and "tolerant" in printed and "regions: dw mIoU" in printed
     out = tmp_path / "runs" / "eval_VX"
     m = json.loads((out / "metrics.json").read_text())
     assert m["tolerant"]["oa"] >= m["dw"]["oa"]
