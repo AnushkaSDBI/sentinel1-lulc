@@ -1,0 +1,108 @@
+{
+  "in_dist": [
+    {
+      "region": "prague",
+      "group": "cities",
+      "mean_conf": 0.8236624002456665,
+      "disagree": 0.07517605613425926,
+      "miou_dw": 0.5730957310697496
+    },
+    {
+      "region": "frankfurt",
+      "group": "cities",
+      "mean_conf": 0.8435971140861511,
+      "disagree": 0.07919997106481481,
+      "miou_dw": 0.5876847987205082
+    }
+  ],
+  "other": [
+    {
+      "region": "milan",
+      "split": "test_ood",
+      "group": "cities",
+      "mean_conf": 0.8499034643173218,
+      "disagree": 0.061337760416666665,
+      "miou_dw": 0.5148325802523105
+    },
+    {
+      "region": "valencia",
+      "split": "test_ood",
+      "group": "cities",
+      "mean_conf": 0.7827988862991333,
+      "disagree": 0.13175515046296296,
+      "miou_dw": 0.46879128900157463
+    },
+    {
+      "region": "north_china_plain",
+      "split": "test",
+      "group": "rural",
+      "mean_conf": 0.8503212928771973,
+      "disagree": 0.07392295201619466,
+      "miou_dw": 0.35215338273155616
+    },
+    {
+      "region": "appalachians",
+      "split": "test",
+      "group": "rural",
+      "mean_conf": 0.7792268395423889,
+      "disagree": 0.09946902592976888,
+      "miou_dw": 0.14325048948835803
+    },
+    {
+      "region": "western_desert",
+      "split": "test",
+      "group": "rural",
+      "mean_conf": 0.9915439486503601,
+      "disagree": 1.533826192220052e-05,
+      "miou_dw": 1.0
+    },
+    {
+      "region": "great_basin",
+      "split": "test",
+      "group": "rural",
+      "mean_conf": 0.7048261165618896,
+      "disagree": 0.37721625963846844,
+      "miou_dw": 0.08257484553375266
+    },
+    {
+      "region": "lake_balaton",
+      "split": "test",
+      "group": "rural",
+      "mean_conf": 0.9432101249694824,
+      "disagree": 0.029170989990234375,
+      "miou_dw": 0.562517550599532
+    },
+    {
+      "region": "za_freestate_maize",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.7214193344116211,
+      "disagree": 0.18311142921447754,
+      "miou_dw": 0.3545438754314461
+    },
+    {
+      "region": "za_lowveld_savanna",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.7536819577217102,
+      "disagree": 0.15222414334615073,
+      "miou_dw": 0.15749159432428106
+    },
+    {
+      "region": "za_karoo_shrub",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.7347302436828613,
+      "disagree": 0.30130725896196237,
+      "miou_dw": 0.15847399182776759
+    },
+    {
+      "region": "za_capetown",
+      "split": "test_ood",
+      "group": "cities",
+      "mean_conf": 0.8247016072273254,
+      "disagree": 0.1253833767361111,
+      "miou_dw": 0.4817343222913457
+    }
+  ]
+}

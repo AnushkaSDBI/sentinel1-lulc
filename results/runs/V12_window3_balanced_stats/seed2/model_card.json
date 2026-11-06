@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "class_names": [
+    "Tree cover",
+    "Grass/shrub",
+    "Cropland",
+    "Built-up",
+    "Bare",
+    "Water"
+  ],
+  "channels": [
+    "vv",
+    "vh",
+    "st0",
+    "st1",
+    "st2",
+    "st3",
+    "st4"
+  ],
+  "norm": {
+    "vv": {
+      "mean": -8.675514502029817,
+      "std": 4.677071102282455
+    },
+    "vh": {
+      "mean": -15.970861265193616,
+      "std": 4.6943982614470166
+    },
+    "st0": {
+      "mean": -10.611648554710468,
+      "std": 4.7189437613824365
+    },
+    "st1": {
+      "mean": -6.72754771171413,
+      "std": 4.560888354678518
+    },
+    "st2": {
+      "mean": 1.2021630633644587,
+      "std": 0.6382760440169328
+    },
+    "st3": {
+      "mean": 2.881054708958081,
+      "std": 1.6367850583191204
+    },
+    "st4": {
+      "mean": 0.022274488972511237,
+      "std": 0.13085263368418934
+    }
+  },
+  "composite": {
+    "method": "median_db"
+  },
+  "window_months": 3,
+  "patch": 256,
+  "ignore_index": 255,
+  "config": {
+    "region_balance": "equal",
+    "encoder": "resnet34",
+    "weights": "imagenet",
+    "window": 3,
+    "coherence": false,
+    "conf_cutoff": 0.0,
+    "epochs": 12,
+    "epoch_samples": 3000,
+    "batch": 16,
+    "lr": 0.0005,
+    "weight_decay": 0.0001,
+    "warmup_frac": 0.05,
+    "patch": 256,
+    "ce_weight": 1.0,
+    "dice_weight": 0.5,
+    "lovasz_weight": 0.0,
+    "ema": 0.999,
+    "val_patches": 600,
+    "patience": 5,
+    "workers": 0,
+    "amp": true,
+    "seed": 2,
+    "class_weight_power": 0.5,
+    "yearly_stats": true,
+    "speckle_p": 0.0,
+    "speckle_looks": 10.0,
+    "label_smoothing": 0.0,
+    "db_shift": 0.0,
+    "month_dropout": 0.0,
+    "jitter": 0,
+    "agree_filter": false
+  },
+  "n_coh_bands": 0,
+  "n_stat": 5,
+  "best_val_miou": 0.650629100758272
+}

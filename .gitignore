@@ -22,3 +22,7 @@ saved_runs/
 Untitled.ipynb
 .env
 Untitled*.ipynb
+
+# The small result files are committed (scripts/collect_results.py copies no weights); only the folders above with real runs stay out.
+!results/runs/
+!results/runs_multiyear/

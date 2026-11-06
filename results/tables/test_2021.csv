@@ -6,4 +6,4 @@ vs Esri 2021 (independent),0.668,0.524,0.716,0.843,9
 vs WorldCover 2021 (independent),0.593,0.456,0.652,0.736,9
 "vs Dynamic World, only where WorldCover agrees",0.791,0.633,0.845,0.919,9
 vs pixels WorldCover and Esri call the same,0.798,0.632,0.862,0.924,9
-"correct if it matches Dynamic World, WorldCover or Esri (flatters any model; read next to the first row)",0.846,0.728,0.89,0.93,9
+"correct if it matches Dynamic World, WorldCover or Esri (flatters any model; 9 regions only, so compare it in same_regions_2021, not with the first row)",0.846,0.728,0.89,0.93,9

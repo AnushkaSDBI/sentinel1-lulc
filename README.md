@@ -10,7 +10,7 @@ The labels are annual, so the monthly maps have no ground truth. Their stability
 
 Test regions are never used for training or model selection. The shipped model is a 3-seed ensemble trained on 2021 to 2024 (21 regions) and
 tested on 39 held-out regions in 2025 and 2026 (January to October), so the test is held out in space and in time.
-Source of every number: `notebooks/report_stats.ipynb`, which writes `results/report_numbers.md`.
+Source of every number: `notebooks/03_train_validate_test.ipynb`, which writes `results/report_numbers.md`.
 
 | Test | Reference map | Pooled mIoU (95% interval over regions) |
 |---|---|---|
@@ -34,7 +34,7 @@ that row is also in `results/report_numbers.md` (`vs Dynamic World, only where W
 | Dataset (exported Sentinel-1 and labels) | `<ADD LINK>` |
 | Model weights (3 seeds) and `ood_reference.json` | `<ADD LINK>` |
 | Screen recording of the prototype on an urban area | `<ADD LINK>` |
-| Training and evaluation notebooks | `notebooks/` (see below) |
+| Notebooks with saved outputs | `notebooks/` (see below) |
 | Prototype | `prototype/` |
 | Result files behind every number | `results/` |
 
@@ -44,17 +44,22 @@ that row is also in `results/report_numbers.md` (`vs Dynamic World, only where W
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt && pip install -e .
 pytest -q                                    # 178 tests (on Windows, activate with .venv\Scripts\activate)
-streamlit run prototype/app.py               # needs weights/ (see prototype/README.md) and an Earth Engine project
+streamlit run prototype/app.py               # needs weights/ (see prototype/README.md); a new place also needs an Earth Engine project,
+                                             # while runs in saved_runs/ open offline with "Saved run (offline)"
 ```
 
-Reproduce the results (Colab or SRH Data Lab GPU), in this order:
+Five notebooks, in order. Each one is saved with its outputs and can be re-run top to bottom with no data and no GPU: slow steps sit behind a switch that is off by default, and tables and figures are rebuilt from `results/`.
 
-1. `notebooks/run_all_datalab.ipynb` (Colab: `run_all.ipynb`): export 2021, train V0 to V12, evaluate on 2021.
-2. `notebooks/multi_year.ipynb`: export 2022 to 2026, train on 2021 to 2024, test on 2025 and 2026.
-3. `python scripts/collect_results.py --runs <runs> <runs_multiyear> --out results`: copies the small result files (no weights).
-4. `notebooks/report_stats.ipynb`: builds every table and figure of the report from `results/`.
+| Notebook | What it does | Slow steps need |
+|---|---|---|
+| `notebooks/01_data_collection.ipynb` | Regions, coverage checks, export from Earth Engine | Earth Engine |
+| `notebooks/02_data_preprocessing.ipynb` | Every preprocessing step, class distribution, exploring the data | The dataset |
+| `notebooks/03_train_validate_test.ipynb` | Training, test runs, training curves, every table and figure of the report | Dataset and GPU |
+| `notebooks/04_app.ipynb` | How to start the prototype, model check, how its numbers are calculated | Weights |
+| `notebooks/05_experiments.ipynb` | Variants, the input fix, borders, what was tried and not kept | Dataset and GPU |
 
-`notebooks/eda.ipynb` is the data exploration; `notebooks/sharper_borders.ipynb` holds the border experiments; `notebooks/archive/` holds earlier notebooks.
+To repeat the full pipeline (Colab or SRH Data Lab GPU): set the switch at the top of a notebook to `True`, then run `python scripts/collect_results.py --runs <runs> <runs_multiyear> --out results` and re-run `03`.
+The original notebooks, with their full logs, are in `notebooks/archive/`.
 All settings are in `configs/` and all seeds are fixed. Earth Engine needs your own project ID in the environment variable `EE_PROJECT`; no ID or token is stored in the repo.
 
 ## Limits
@@ -62,7 +67,7 @@ All settings are in `configs/` and all seeds are fixed. Earth Engine needs your 
 - No monthly ground truth. I test stability on pixels both annual maps call stable: 2.61% of them change class between months in the raw maps and 1.00% after 3-month smoothing (Dynamic World itself: 6.79%; 9 regions with both annual maps, 2021).
 - 2025 and 2026 are scored against Dynamic World only, a model output with its own errors.
 - Weak classes: Grass/shrub, Bare, Cropland. Arid and cold regions score lowest (Sahel, Great Basin, Patagonia, Iceland, Tibet).
-- Borders are soft. The CRF, graph head, test-time augmentation and the full-resolution branch are implemented; read `results/report_numbers.md` for which of them were evaluated.
+- Borders are soft. Test-time augmentation, Gaussian stitching, the CRF, the full-resolution branch and the graph head were all tested, and none passed the rule set before the results (table in `notebooks/05_experiments.ipynb`), so none is used.
 
 ## Related work and licence
 
@@ -167,7 +172,7 @@ After export, check the class shares per tile. If a tile is not dominated by its
 
 ## Step 3: train and evaluate
 
-`notebooks/train_evaluate.ipynb` runs everything; the commands behind it:
+`notebooks/03_train_validate_test.ipynb` holds these runs; the commands behind it:
 
 ```
 python scripts/train_all.py --data data/raw --out runs                     # V0-V8, 3 seeds, resumable

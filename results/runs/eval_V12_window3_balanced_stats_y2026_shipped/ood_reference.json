@@ -1,0 +1,316 @@
+{
+  "in_dist": [
+    {
+      "region": "prague",
+      "group": "cities",
+      "mean_conf": 0.8230047821998596,
+      "disagree": 0.08571772569444444,
+      "miou_dw": 0.5790376101090197
+    },
+    {
+      "region": "frankfurt",
+      "group": "cities",
+      "mean_conf": 0.842049241065979,
+      "disagree": 0.08233633680555555,
+      "miou_dw": 0.5756889569011946
+    }
+  ],
+  "other": [
+    {
+      "region": "milan",
+      "split": "test_ood",
+      "group": "cities",
+      "mean_conf": 0.8487972021102905,
+      "disagree": 0.06561190972222222,
+      "miou_dw": 0.5061406165931355
+    },
+    {
+      "region": "valencia",
+      "split": "test_ood",
+      "group": "cities",
+      "mean_conf": 0.7550766468048096,
+      "disagree": 0.19980994791666667,
+      "miou_dw": 0.4215007401689094
+    },
+    {
+      "region": "north_china_plain",
+      "split": "test",
+      "group": "rural",
+      "mean_conf": 0.8530870676040649,
+      "disagree": 0.08574647903442383,
+      "miou_dw": 0.39570132312592005
+    },
+    {
+      "region": "appalachians",
+      "split": "test",
+      "group": "rural",
+      "mean_conf": 0.6998165249824524,
+      "disagree": 0.16850357055664061,
+      "miou_dw": 0.1502013824532176
+    },
+    {
+      "region": "western_desert",
+      "split": "test",
+      "group": "rural",
+      "mean_conf": 0.9397088885307312,
+      "disagree": 0.09618806838989258,
+      "miou_dw": 0.9616278648376465
+    },
+    {
+      "region": "great_basin",
+      "split": "test",
+      "group": "rural",
+      "mean_conf": 0.9177757501602173,
+      "disagree": 0.09495382308959961,
+      "miou_dw": 0.08500710528305006
+    },
+    {
+      "region": "lake_balaton",
+      "split": "test",
+      "group": "rural",
+      "mean_conf": 0.690445065498352,
+      "disagree": 0.7408335685729981,
+      "miou_dw": 0.4854919312134192
+    },
+    {
+      "region": "za_freestate_maize",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.7346185445785522,
+      "disagree": 0.13070926666259766,
+      "miou_dw": 0.4060028266281461
+    },
+    {
+      "region": "za_lowveld_savanna",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.6768782138824463,
+      "disagree": 0.23701610565185546,
+      "miou_dw": 0.12952846631878495
+    },
+    {
+      "region": "za_karoo_shrub",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.5303187966346741,
+      "disagree": 0.515117606038603,
+      "miou_dw": 0.20993901475261237
+    },
+    {
+      "region": "za_capetown",
+      "split": "test_ood",
+      "group": "cities",
+      "mean_conf": 0.6964605450630188,
+      "disagree": 0.42394022569444445,
+      "miou_dw": 0.3917873076363924
+    },
+    {
+      "region": "india_punjab",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.7796066999435425,
+      "disagree": 0.12826642990112305,
+      "miou_dw": 0.29072600386735065
+    },
+    {
+      "region": "deccan_india",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.7505819797515869,
+      "disagree": 0.19654772016737196,
+      "miou_dw": 0.28033873748353294
+    },
+    {
+      "region": "java_rice",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.6533454656600952,
+      "disagree": 0.3153543472290039,
+      "miou_dw": 0.21864833870635925
+    },
+    {
+      "region": "mekong_delta",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.7716142535209656,
+      "disagree": 0.18137474060058595,
+      "miou_dw": 0.3883442582899443
+    },
+    {
+      "region": "amazon_para",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.8492026329040527,
+      "disagree": 0.1111572265625,
+      "miou_dw": 0.33483768951705056
+    },
+    {
+      "region": "cerrado_brazil",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.6847504377365112,
+      "disagree": 0.2571767807006836,
+      "miou_dw": 0.33351937274595017
+    },
+    {
+      "region": "canada_boreal",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.699500322341919,
+      "disagree": 0.2793155580421587,
+      "miou_dw": 0.3113413974351714
+    },
+    {
+      "region": "australia_outback",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.7064491510391235,
+      "disagree": 0.24261722564697266,
+      "miou_dw": 0.27052252005243127
+    },
+    {
+      "region": "altiplano_andes",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.8845468759536743,
+      "disagree": 0.07617673873901368,
+      "miou_dw": 0.3497948630174899
+    },
+    {
+      "region": "sahel_niger",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.5551698207855225,
+      "disagree": 0.6390717506408692,
+      "miou_dw": 0.14592769768423386
+    },
+    {
+      "region": "iowa_maize",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.8784428834915161,
+      "disagree": 0.05100746154785156,
+      "miou_dw": 0.33884304579978736
+    },
+    {
+      "region": "congo_forest",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.7479053139686584,
+      "disagree": 0.19673919677734375,
+      "miou_dw": 0.2164524576337037
+    },
+    {
+      "region": "patagonia_steppe",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.9165775179862976,
+      "disagree": 0.048661327362060545,
+      "miou_dw": 0.11911112395467847
+    },
+    {
+      "region": "nz_pasture",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.6808692216873169,
+      "disagree": 0.26244173049926756,
+      "miou_dw": 0.2858292099736694
+    },
+    {
+      "region": "scottish_highlands",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.6692745089530945,
+      "disagree": 0.23908672332763672,
+      "miou_dw": 0.2579107479443664
+    },
+    {
+      "region": "iceland_tundra",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.5442555546760559,
+      "disagree": 0.6512564659118653,
+      "miou_dw": 0.11304735004970756
+    },
+    {
+      "region": "kazakh_steppe",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.6104730367660522,
+      "disagree": 0.7293441772460938,
+      "miou_dw": 0.1328700281687156
+    },
+    {
+      "region": "tibetan_plateau",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.9298818707466125,
+      "disagree": 0.09229145050048829,
+      "miou_dw": 0.2483329591265341
+    },
+    {
+      "region": "thai_paddy",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.8131119012832642,
+      "disagree": 0.13021421432495117,
+      "miou_dw": 0.295220525711591
+    },
+    {
+      "region": "ethiopia_highlands",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.7801312208175659,
+      "disagree": 0.17806596755981446,
+      "miou_dw": 0.19975233015407026
+    },
+    {
+      "region": "madagascar_plateau",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.657730758190155,
+      "disagree": 0.1916987419128418,
+      "miou_dw": 0.2064047170819563
+    },
+    {
+      "region": "california_valley",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.7108246088027954,
+      "disagree": 0.2461933135986328,
+      "miou_dw": 0.23632480599644953
+    },
+    {
+      "region": "texas_rangeland",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.6370481252670288,
+      "disagree": 0.26808967590332033,
+      "miou_dw": 0.14265374343586903
+    },
+    {
+      "region": "pantanal_wetland",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.8779702186584473,
+      "disagree": 0.01950864791870117,
+      "miou_dw": 0.16014050924329193
+    },
+    {
+      "region": "siberia_taiga",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.8070947527885437,
+      "disagree": 0.10553474426269531,
+      "miou_dw": 0.14811031078401551
+    },
+    {
+      "region": "bangladesh_delta",
+      "split": "test_ood",
+      "group": "rural",
+      "mean_conf": 0.6551367044448853,
+      "disagree": 0.4227291107177734,
+      "miou_dw": 0.22541336180701335
+    }
+  ]
+}
