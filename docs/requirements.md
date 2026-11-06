@@ -36,7 +36,7 @@ Collect data and train a deep learning model for Land Use and Land Cover (LULC) 
 | Item | Status |
 |---|---|
 | Dataset | Exported to Drive (32 regions, 2021). Download link not made yet. Five new southern/arid tiles not exported yet. |
-| Notebook(s) with outputs | `run_all.ipynb` runs the pipeline. Save it with outputs after the final run (curves, tables). |
+| Notebook(s) with outputs | The five notebooks in `notebooks/`, saved with outputs; training curves and tables are in `03_train_validate_test.ipynb`. |
 | Prototype source, README, requirements | Done and tested on real Heidelberg data. README and `requirements.txt` in the repo. |
 | Trained weights | V2 seeds exist. Copy the final variant to `weights/`, with `ood_reference.json`. |
 | Screen recording, urban area | Not done. Plan: Heidelberg, run locally. |

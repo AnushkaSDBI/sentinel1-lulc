@@ -12,7 +12,7 @@ Every step below is optional. Nothing here changes the shipped model.
 | Graph head | `scripts/graph_head_eval.py --data data/raw --runs runs_multiyear --variant V12_window3_balanced_stats --train-splits val --eval-splits test test_ood --year 2024 --eval-year 2025 --eval-data data/raw_2025` | Same rule as the CRF. Train on validation regions, judge on test. Experimental. |
 | Stable control city | Prototype, sidebar, "Quick demo locations": "Control: Prague" (held out; Munich is a train region, so it would understate false change) | Check the square on satellite view before recording. |
 
-Sharper borders, in order, all in `notebooks/sharper_borders.ipynb` and all judged by the same rule (`sharpness.passes_border_rule`):
+Sharper borders, in order, all in `notebooks/05_experiments.ipynb` (original: `notebooks/archive/sharper_borders.ipynb`) and all judged by the same rule (`sharpness.passes_border_rule`):
 
 | Step | Command | Cost |
 |---|---|---|

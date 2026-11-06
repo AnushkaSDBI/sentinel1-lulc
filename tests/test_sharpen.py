@@ -191,7 +191,7 @@ def test_notebook_variables_survive_percent_run():
     import json
     import re
     import sharpen_eval
-    nb = json.loads((ROOT / "notebooks" / "sharper_borders.ipynb").read_text(encoding="utf8"))
+    nb = json.loads((ROOT / "notebooks" / "archive" / "sharper_borders.ipynb").read_text(encoding="utf8"))
     used = set()
     for c in nb["cells"]:
         if c["cell_type"] == "code":
