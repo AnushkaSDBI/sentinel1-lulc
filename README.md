@@ -178,7 +178,7 @@ Variants (`configs/experiments.yaml`): V0 scratch U-Net ResNet-34, V1 ImageNet e
 V3 V2 plus Dynamic World confidence cutoff (50), V4 V3 plus seasonal coherence (needs `export_coherence.py` and the
 professor's OK that coherence counts as Sentinel-1). V2-V8 use the encoder weights of whichever of V0/V1 wins on validation.
 
-Added after the first results, all measured against V2 on validation only (gaps under 0.05 mIoU are seed noise):
+Added after the first results, all measured against V2 on validation only (the spread between seeds is about 0.01 to 0.03 mIoU, so smaller gaps are noise):
 V5 five yearly statistic channels (VV min/max, VH std, VH 2nd-high minus 2nd-low, share of months VV < -18 dB; order independent),
 V6 class-weight power 0.75 plus Lovasz loss, V7 speckle augmentation (multiplicative Gamma noise in dB, p 0.5, 10 looks),
 V8 all three. `--exclude pampas nsw_pasture kenya_savanna mongolia_steppe arabia_desert` trains on the old regions, so the new
