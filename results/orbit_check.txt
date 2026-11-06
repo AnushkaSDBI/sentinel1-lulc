@@ -1,0 +1,76 @@
+Regions per orbit direction: {'ASCENDING': 31, 'DESCENDING': 36}
+
+Regions with MORE THAN ONE direction across all exported months: 0
+
+Region-years with mixed directions inside one year: 0
+
+Region-years with a median under 3 scenes per pixel or 3+ months without radar: 57
+            region  year  direction  months  no_radar_months  scenes_median
+       amazon_para  2025 DESCENDING      12                0            2.0
+       amazon_para  2026 DESCENDING      10                0            2.5
+      appalachians  2021  ASCENDING      12                0            2.0
+      appalachians  2025  ASCENDING      12                0            2.5
+      appalachians  2026  ASCENDING      10                0            2.0
+     arabia_desert  2021  ASCENDING      12                0            2.0
+     arabia_desert  2022  ASCENDING      12               12            0.0
+     arabia_desert  2023  ASCENDING      12               12            0.0
+     arabia_desert  2024  ASCENDING      12               12            0.0
+ australia_outback  2021 DESCENDING      12                0            2.5
+ australia_outback  2025 DESCENDING      12                3            2.0
+  bangladesh_delta  2021 DESCENDING      12                0            2.5
+  bangladesh_delta  2025 DESCENDING      12                0            2.0
+    cerrado_brazil  2021 DESCENDING      12                0            2.5
+    cerrado_brazil  2025 DESCENDING      12                0            2.5
+    cerrado_brazil  2026 DESCENDING      10                0            2.5
+      congo_forest  2021 DESCENDING      12                0            2.0
+      congo_forest  2025 DESCENDING      12                0            2.5
+      congo_forest  2026 DESCENDING      10                0            2.0
+      deccan_india  2021 DESCENDING      12                0            2.5
+      deccan_india  2025 DESCENDING      12                0            2.0
+      deccan_india  2026 DESCENDING      10                1            2.0
+      dehesa_spain  2023  ASCENDING      12                0            2.5
+ethiopia_highlands  2021 DESCENDING      12                0            2.5
+ethiopia_highlands  2025 DESCENDING      12                0            2.5
+         java_rice  2021  ASCENDING      12                2            2.0
+         java_rice  2025  ASCENDING      12                1            2.0
+         java_rice  2026  ASCENDING      10                0            2.0
+     kazakh_steppe  2025 DESCENDING      12                3            3.5
+madagascar_plateau  2021 DESCENDING      12                0            2.5
+madagascar_plateau  2025 DESCENDING      12                0            2.5
+            madrid  2023 DESCENDING      12                0            2.0
+   mongolia_steppe  2022 DESCENDING      12               12            0.0
+   mongolia_steppe  2023 DESCENDING      12               12            0.0
+   mongolia_steppe  2024 DESCENDING      12               12            0.0
+       nsw_pasture  2021 DESCENDING      12                0            2.5
+       nsw_pasture  2022 DESCENDING      12                0            2.0
+       nsw_pasture  2023 DESCENDING      12                0            2.5
+       nsw_pasture  2024 DESCENDING      12                1            2.5
+        nz_pasture  2021 DESCENDING      12                0            2.0
+            pampas  2022 DESCENDING      12                0            2.0
+            pampas  2023 DESCENDING      12                0            2.0
+            pampas  2024 DESCENDING      12                0            2.0
+  pantanal_wetland  2021 DESCENDING      12                0            2.0
+  pantanal_wetland  2025 DESCENDING      12                0            2.0
+           poltava  2022  ASCENDING      12                0            2.5
+           poltava  2024  ASCENDING      12                0            2.5
+    sahara_algeria  2021 DESCENDING      12                0            2.0
+    sahara_algeria  2022 DESCENDING      12               12            0.0
+    sahara_algeria  2023 DESCENDING      12               12            0.0
+    sahara_algeria  2024 DESCENDING      12               12            0.0
+       sahel_niger  2021  ASCENDING      12                0            2.5
+     siberia_taiga  2025 DESCENDING      12                3            3.5
+   texas_rangeland  2026  ASCENDING      10                0            2.5
+    western_desert  2025  ASCENDING      12                3            5.0
+    za_karoo_shrub  2021  ASCENDING      12                0            2.5
+    za_karoo_shrub  2026  ASCENDING      10                0            2.5
+
+Median scenes per pixel by year:
+year
+2021    5.0
+2022    5.0
+2023    5.0
+2024    5.0
+2025    4.0
+2026    4.5
+
+Saved /home/jovyan/vault/lulc/raw/orbit_check.csv
