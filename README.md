@@ -6,15 +6,19 @@ Course project, Deep Learning, MSc Applied Data Science and AI, SRH Hochschule H
 
 ## Links
 
-| Item | Where |
+| Item | Link |
 |---|---|
-| Report (Word + PDF) | [`report/`](report/) |
-| Code | this repository |
-| Notebooks with saved outputs | [`notebooks/`](https://github.com/AnushkaSDBI/sentinel1-lulc/tree/main/notebooks) |
-| Dataset (Sentinel-1 + labels, 67 regions) | [Google Drive](https://drive.google.com/file/d/1LddsfSM7CM0RR5r1ygh-hcIta0NG9KMU/view?usp=sharing) |
-| Model weights (3 seeds) + `ood_reference.json` | [Google Drive](https://drive.google.com/drive/folders/1D7t3IX6vt9x8Gu28-bjNOs3YvEnqOdu6?usp=sharing) |
-| Demo video (prototype on 5 urban/rural areas) | [Google Drive](https://drive.google.com/file/d/1Z4eBlwcIl7GYEhNddxRd4zBj3B9PGovz/view?usp=sharing) |
-| All submission files in one folder | [Google Drive](https://drive.google.com/drive/folders/162QX-zKiULvjKzCePR-PTbTka6m43c9g?usp=sharing) |
+| **Dataset** (Sentinel-1 + labels, 67 regions) | https://drive.google.com/file/d/1LddsfSM7CM0RR5r1ygh-hcIta0NG9KMU/view?usp=sharing |
+| **Training code** — notebook | https://github.com/AnushkaSDBI/sentinel1-lulc/blob/main/notebooks/03_train_validate_test.ipynb |
+| **Training code** — training script | https://github.com/AnushkaSDBI/sentinel1-lulc/blob/main/scripts/train_all.py |
+| **Training code** — model, data and metrics modules | https://github.com/AnushkaSDBI/sentinel1-lulc/tree/main/src/lulc |
+| **Model weights** (3 seeds) + `ood_reference.json` | https://drive.google.com/drive/folders/1D7t3IX6vt9x8Gu28-bjNOs3YvEnqOdu6?usp=sharing |
+| **Prototype code** — app | https://github.com/AnushkaSDBI/sentinel1-lulc/blob/main/prototype/app.py |
+| **Prototype code** — notebook | https://github.com/AnushkaSDBI/sentinel1-lulc/blob/main/notebooks/04_app.ipynb |
+| Report (Word + PDF) | `report/` |
+| Code repository | https://github.com/AnushkaSDBI/sentinel1-lulc |
+| Demo video (5 urban/rural areas) | https://drive.google.com/file/d/1Z4eBlwcIl7GYEhNddxRd4zBj3B9PGovz/view?usp=sharing |
+| All submission files in one folder | https://drive.google.com/drive/folders/162QX-zKiULvjKzCePR-PTbTka6m43c9g?usp=sharing |
 
 ## Results
 
