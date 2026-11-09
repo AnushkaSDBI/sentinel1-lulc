@@ -26,3 +26,15 @@ Untitled*.ipynb
 # The small result files are committed (scripts/collect_results.py copies no weights); only the folders above with real runs stay out.
 !results/runs/
 !results/runs_multiyear/
+
+# Private self-assessment, not part of the submission
+SELF_EVALUATION.md
+
+# Working and exported videos stay out of git (they are shared via Drive)
+*.mp4
+*.webm
+*.mov
+
+# Superseded drafts kept locally but out of the submission (final report is in report/)
+/Land_cover_maps_from_Sentinel-1_radar_report.docx
+report-layout-*.md

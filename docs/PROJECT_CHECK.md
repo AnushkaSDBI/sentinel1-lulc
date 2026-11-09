@@ -1,4 +1,4 @@
-# Project check, 2026-10-26 (14 days to the 9 Nov deadline)
+# Project check, 2026-11-06 (3 days to the 9 Nov deadline)
 
 ## 1. Requirements against what we have
 
@@ -7,28 +7,28 @@ Status: done = built and tested offline, partly = exists but needs data or work,
 | Requirement | Status | Where / what is missing |
 |---|---|---|
 | Sentinel-1 is the only model input | done | Labels, WorldCover, Esri and coherence are never inputs. Coherence is a labelled ablation and needs the professor's OK. |
-| Dataset: source, regions, period, classes | partly | EE S1_GRD + Dynamic World, 32 regions, 2021, 6 classes. Export is running. |
-| Dataset: class distribution | open | Needs the export. Count after dropping ignored pixels. |
+| Dataset: source, regions, period, classes | done | EE S1_GRD + Dynamic World, 2021-2026 (`runs_multiyear`), 6 classes. |
+| Dataset: class distribution | partly | In `notebooks/02_data_preprocessing.ipynb`. Not yet copied into the report document. |
 | Calibration, dB, terrain correction | done (by EE) | EE does thermal noise removal, calibration, geometric terrain correction, dB. No radiometric terrain flattening: say so, hilly regions suffer. |
 | Speckle filtering | partly | Monthly temporal median is our filter. The slide asks for it explicitly, so run one spatial-filter variant and report the number (repo A: it hurt). |
 | Normalisation, patching | done | `patches.py` (train-only stats, index of valid patches). |
 | Label matching | done | One grid per region, grid check against EE, overlay QA. Show the QA figure in the report. |
 | Augmentation | open | Flips and 90-degree rotations only. Brightness shift optional. |
 | Splits by city | done | 16 train, 6 val, 7 test, 2 out-of-distribution, 1 case study. Overlap check in code. |
-| Model: architecture, setup, reasoning | open | 4 variants planned, notebook not written. |
-| Test OA, mIoU, per-class IoU and F1, training curves, variant comparison | open | Notebook. 3 seeds per variant. |
-| Prototype: lat/lon + start month -> 12 maps | open | `stats.py` (percentages, change in pp) is done and tested. Needs the Streamlit app and a live EE fetch. |
-| Prototype: monthly compositing, how changes are computed | partly | Compositing code exists (`build_image`). Reuse it for inference. |
-| Case study against an independent map | partly | Heidelberg. WorldCover and Esri exporters written. Esri class scheme still to confirm from the output. |
-| Prototype README, requirements, accounts or API keys | partly | README exists. Needs the prototype steps. EE account is the only account. |
-| Dataset delivery (link if large) | risk | Size unknown. Estimate: several GB. Measure the Paris file. Share a Drive link. A uint8 dB format would cut it by about 2x. |
-| Notebooks with executed outputs | open | |
-| Trained weights | open | |
-| Screen recording of a full run on an urban area | open | Heidelberg. Needs the prototype first. |
-| Report: unlike regions | planned | Milan, Valencia and the non-European rural test tiles. |
-| Report: SAR class confusion | planned | Confusion matrix, grass/crops/shrub. |
-| Report: seasonal effects mimicking change | open | Needs a false-change test (see section 3). |
-| Report: classification errors inflating change percentages | open | Same test. |
+| Model: architecture, setup, reasoning | done | Notebook `03_train_validate_test.ipynb`, run through V12; border variants V13-V17 in `05_experiments.ipynb`. |
+| Test OA, mIoU, per-class IoU and F1, training curves, variant comparison | done | `03_train_validate_test.ipynb` and `05_experiments.ipynb`, with real outputs. 3-seed ensemble shipped. |
+| Prototype: lat/lon + start month -> 12 maps | done | `prototype/app.py`, tested on real Heidelberg data. |
+| Prototype: monthly compositing, how changes are computed | done | `build_image` reused for inference; `stats.py` for percentages and change in pp. |
+| Case study against an independent map | done | Heidelberg 2021, `docs/figures/heidelberg_2021_independent_check.png`. |
+| Prototype README, requirements, accounts or API keys | done | README has the prototype steps; EE account is the only account. |
+| Dataset delivery (link if large) | open | Link not made yet. |
+| Notebooks with executed outputs | done | All five notebooks in `notebooks/`, saved with real outputs. |
+| Trained weights | done | `weights/final_model.pt` (3-seed ensemble) and `ood_reference.json`. |
+| Screen recording of a full run on an urban area | open | Heidelberg, after the prototype is final. |
+| Report: unlike regions | open | Material exists (Great Basin, Iceland, Patagonia, OOD regions); not yet in the report document. |
+| Report: SAR class confusion | open | Not yet in the report document. |
+| Report: seasonal effects mimicking change | open | Not yet in the report document. |
+| Report: classification errors inflating change percentages | open | Not yet in the report document. |
 
 ### Differences from the older project doc ("defaults I am proposing")
 - Data access: Earth Engine, not Planetary Computer (labels and server-side compositing live in EE).
@@ -43,16 +43,12 @@ Status: done = built and tested offline, partly = exists but needs data or work,
 4. Hilly regions: no radiometric terrain flattening.
 5. Esri class scheme unconfirmed.
 
-### Schedule
-| Dates | Work |
-|---|---|
-| 26-27 Oct | Export training cities, reference maps, coverage check on rural tiles |
-| 28 Oct | Export val and test cities, QA overlays, class shares, dataset builder |
-| 29-31 Oct | Training notebook, V0 and V1, then V2 and V3 |
-| 1-2 Nov | Seeds, test evaluation, false-change test |
-| 3-5 Nov | Prototype, Heidelberg case study, screen recording |
-| 6-8 Nov | Report, README, packaging |
-| 9 Nov | Submit |
+### Schedule (updated 2026-11-06)
+| Dates | Work | Status |
+|---|---|---|
+| 26 Oct - 5 Nov | Export, training through V12, border experiments, prototype, Heidelberg case study | done |
+| 6-8 Nov | Report content, README links, screen recording, dataset/weights upload | in progress |
+| 9 Nov | Submit | pending |
 
 ## 2. What we take from the two repos
 
